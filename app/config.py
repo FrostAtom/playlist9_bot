@@ -6,6 +6,21 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var, treating missing/empty/blank as the default.
+
+    Empty strings are common when an env var is declared but unset (e.g. compose
+    `${VAR}` interpolation), and would otherwise crash `int('')`.
+    """
+    raw = os.environ.get(name, "").strip()
+    return int(raw) if raw else default
+
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.environ.get(name, "").strip()
+    return raw or default
+
+
 @dataclass(frozen=True)
 class Settings:
     token: str
@@ -23,15 +38,14 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
         if not token:
             raise SystemExit("TELEGRAM_BOT_TOKEN environment variable is not set")
-        storage = os.environ.get("STORAGE_CHAT_ID")
         return cls(
             token=token,
-            max_file_size=int(os.environ.get("MAX_FILE_SIZE_MB", "50")) * 1024 * 1024,
-            max_results=int(os.environ.get("MAX_RESULTS", "30")),
-            results_per_page=int(os.environ.get("RESULTS_PER_PAGE", "10")),
-            audio_quality=os.environ.get("AUDIO_QUALITY", "192"),
-            storage_chat_id=int(storage) if storage else None,
+            max_file_size=_env_int("MAX_FILE_SIZE_MB", 50) * 1024 * 1024,
+            max_results=_env_int("MAX_RESULTS", 30),
+            results_per_page=_env_int("RESULTS_PER_PAGE", 10),
+            audio_quality=_env_str("AUDIO_QUALITY", "192"),
+            storage_chat_id=_env_int("STORAGE_CHAT_ID", 0) or None,
         )

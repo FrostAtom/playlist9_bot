@@ -44,12 +44,12 @@ open the chat, send a track name, and pick a result.
 
 ### Run the published image (no clone needed)
 
-Grab just the compose file, create a `.env`, and pull the prebuilt image from
-GHCR:
+Grab just the compose file, set your token in its `environment:` block, and pull
+the prebuilt image from GHCR:
 
 ```sh
 curl -O https://raw.githubusercontent.com/FrostAtom/playlist9_bot/main/docker-compose.yml
-printf 'TELEGRAM_BOT_TOKEN=123456:ABC-DEF...\n' > .env   # see Configuration
+# edit docker-compose.yml → environment → TELEGRAM_BOT_TOKEN: "123456:ABC-DEF..."
 docker compose pull
 docker compose up -d
 docker compose logs -f
@@ -63,15 +63,25 @@ every push to `main`.
 ```sh
 git clone https://github.com/FrostAtom/playlist9_bot.git
 cd playlist9_bot
-cp .env.example .env        # then put your bot token in .env
+# edit docker-compose.yml → environment → TELEGRAM_BOT_TOKEN
 docker compose up -d --build
 ```
 
 ## ⚙️ Configuration
 
-All configuration is via environment variables — see **[`.env.example`](.env.example)**
-for the full list with defaults. The only required value is `TELEGRAM_BOT_TOKEN`
-(get one from [@BotFather](https://t.me/BotFather)).
+All configuration lives in the `environment:` block of `docker-compose.yml`.
+Only `TELEGRAM_BOT_TOKEN` is required (get one from
+[@BotFather](https://t.me/BotFather)); leave any other field empty to use its
+default.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
+| `STORAGE_CHAT_ID` | — | Channel id (`-100…`) where the bot is admin; enables inline file delivery. |
+| `MAX_FILE_SIZE_MB` | `50` | Max size of a sent file (Telegram caps bots at 50). |
+| `MAX_RESULTS` | `30` | Results fetched per search. |
+| `RESULTS_PER_PAGE` | `10` | Results shown per page. |
+| `AUDIO_QUALITY` | `192` | MP3 quality in kbps. |
 
 ## 💬 Usage
 
