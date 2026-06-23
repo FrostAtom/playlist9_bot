@@ -1,75 +1,35 @@
 services:
   bot:
-    # Published image — `docker compose pull && docker compose up -d` works with
-    # just this file. From a clone, `docker compose up -d --build` builds locally.
     image: ghcr.io/frostatom/playlist9_bot:latest
-    build: .
     container_name: playlist9_bot
     restart: unless-stopped
-    # Config comes from a local .env file: copy .env.example to .env and fill it
-    # in (.env is gitignored, so secrets stay out of version control). Blank or
-    # unset values fall back to the defaults in app/config.py.
     environment:
-      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?copy .env.example to .env and set TELEGRAM_BOT_TOKEN}"
-      STORAGE_CHAT_ID: ${STORAGE_CHAT_ID:-}
-      # Persistent file_id cache — required, points at the bundled `db` service.
-      # The password is passed separately (DATABASE_PASSWORD) instead of being
-      # interpolated into the URL, so special characters (@ : / # ? %) in the
-      # password can't corrupt the DSN — asyncpg applies it verbatim.
-      DATABASE_URL: "postgresql://playlist9@db:5432/playlist9"
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-playlist9}
-      COOKIES_FILE: ${COOKIES_FILE:-}
-      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-}
-      MAX_RESULTS: ${MAX_RESULTS:-}
-      RESULTS_PER_PAGE: ${RESULTS_PER_PAGE:-}
-      AUDIO_QUALITY: ${AUDIO_QUALITY:-}
-      INLINE_RESULTS: ${INLINE_RESULTS:-}
-      SEARCH_CACHE_SIZE: ${SEARCH_CACHE_SIZE:-}
-      RESULTS_TTL_SECONDS: ${RESULTS_TTL_SECONDS:-}
-      DOWNLOAD_PER_USER: ${DOWNLOAD_PER_USER:-}
-      DOWNLOAD_TOTAL: ${DOWNLOAD_TOTAL:-}
-      RATE_PER_MINUTE: ${RATE_PER_MINUTE:-}
+      TELEGRAM_BOT_TOKEN: ""
+      STORAGE_CHAT_ID: ""
+      COOKIES_FILE: ""
+      DATABASE_HOST: "db"
+      DATABASE_PORT: "5432"
+      DATABASE_USER: "playlist9"
+      DATABASE_PASSWORD: "playlist9"
+      DATABASE_NAME: "playlist9"
     volumes:
       - ./cookies:/cookies:ro
+    ports:
+      - "8473:8473"
     depends_on:
       db:
         condition: service_healthy
-    # Give the bot time to finish in-flight work on SIGTERM before SIGKILL.
-    stop_grace_period: 30s
-    # Cap memory so parallel yt-dlp/ffmpeg jobs can't OOM the host (e.g. a Pi);
-    # the container is killed and restarted (unless-stopped) instead of taking
-    # the whole machine down. Bound logs so json-file can't fill the disk.
-    mem_limit: 768m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "python", "healthcheck.py"]
-      interval: 30s
-      timeout: 5s
-      start_period: 20s
-      retries: 3
 
   db:
     image: postgres:16-alpine
     container_name: playlist9_db
     restart: unless-stopped
-    # Local-only credentials (the DB is not exposed outside the compose network).
-    # Set POSTGRES_PASSWORD in .env to change the password (DATABASE_URL reuses it).
     environment:
-      POSTGRES_USER: playlist9
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-playlist9}
-      POSTGRES_DB: playlist9
+      POSTGRES_USER: "playlist9"
+      POSTGRES_PASSWORD: "playlist9"
+      POSTGRES_DB: "playlist9"
     volumes:
       - pgdata:/var/lib/postgresql/data
-    mem_limit: 512m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U playlist9 -d playlist9"]
       interval: 10s

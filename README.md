@@ -27,6 +27,10 @@ open the chat, send a track name, and pick a result.
   `soundcloud.com`. **Spotify** and **Apple Music** track links are also
   accepted: the bot reads the artist + title and finds a match on YouTube Music
   (those platforms are DRM-protected and can't be downloaded directly).
+- **Playlist & album links** — paste a YouTube/SoundCloud playlist, or a
+  Spotify/Apple Music playlist *or album*, and the bot lists its tracks (up to
+  100) as paginated buttons to download one by one. A link that is *both* a
+  track and a playlist (e.g. a YouTube `watch?v=…&list=…`) asks which you meant.
 - **Best available quality** — fetches the best source audio and sends MP3 at up
   to **320 kbps**.
 - **Persistent cache** — delivered tracks are remembered in **PostgreSQL**
@@ -50,61 +54,80 @@ open the chat, send a track name, and pick a result.
   search-results message auto-deletes after a few minutes; only the delivered
   tracks stay.
 - **Healthcheck** (event-loop heartbeat) and **graceful shutdown** on SIGTERM.
+- **Status page** — a built-in web page at `http://localhost:8473` shows live
+  metrics (uptime, unique users in the last 24 h, searches, downloads, …), the
+  most recent error/warning logs, and the installed `yt-dlp` build — with a
+  banner nudging you to update it once it's older than 30 days (stale builds are
+  the usual cause of YouTube breakage). Served on port `8473` with no auth — keep
+  it on a trusted network or behind a reverse proxy.
 
 ## 🚀 Quick start
 
 ### Run the published image (no clone needed)
 
-Grab the compose file, drop your token into a `.env` next to it, and pull the
-prebuilt image from GHCR:
+The image is published to `ghcr.io/frostatom/playlist9_bot:latest`. The compose
+file has no `${...}` interpolation and no build step — you just set your token in
+the `environment:` block and start it. This works as-is on plain Docker and on
+app platforms like **CasaOS / Portainer** (paste the compose, fill in the env
+fields in the UI).
 
 ```sh
+mkdir playlist9_bot && cd playlist9_bot
 curl -O https://raw.githubusercontent.com/FrostAtom/playlist9_bot/main/docker-compose.yml
-echo "TELEGRAM_BOT_TOKEN=123456:ABC-DEF..." > .env   # only the token is required
-docker compose pull
+
+# edit docker-compose.yml → set TELEGRAM_BOT_TOKEN (get one from @BotFather)
+#                            STORAGE_CHAT_ID only if you use inline mode
+
 docker compose up -d
 docker compose logs -f
 ```
 
-The image is published to `ghcr.io/frostatom/playlist9_bot:latest` by CI on
-every push to `main`.
+Then open the status page at **http://localhost:8473** and message your bot on
+Telegram. To update later: `docker compose pull && docker compose up -d`. To
+stop: `docker compose down`. CI rebuilds and pushes the image (multi-arch:
+`linux/amd64,linux/arm64`) on every push to `main`.
 
 ### Build from source (for development)
+
+The compose file pulls the published image, so build and tag it locally first,
+then bring the stack up:
 
 ```sh
 git clone https://github.com/FrostAtom/playlist9_bot.git
 cd playlist9_bot
-cp .env.example .env          # then edit .env → TELEGRAM_BOT_TOKEN=...
-docker compose up -d --build
+docker build -t ghcr.io/frostatom/playlist9_bot:latest .
+# set TELEGRAM_BOT_TOKEN in docker-compose.yml, then:
+docker compose up -d
 ```
 
 ## ⚙️ Configuration
 
-Configuration is read from a local **`.env`** file (gitignored, so secrets never
-land in git). Copy the template and fill it in — only `TELEGRAM_BOT_TOKEN` is
-required (get one from [@BotFather](https://t.me/BotFather)); leave anything else
-blank to use its default.
-
-```sh
-cp .env.example .env
-# edit .env → TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
-```
-
-Compose reads `.env` automatically and injects the values into the container.
+Configuration lives directly in the `environment:` blocks of
+**`docker-compose.yml`** (no `.env`, no interpolation — so it can't break on
+CasaOS and friends). Only `TELEGRAM_BOT_TOKEN` is required (get one from
+[@BotFather](https://t.me/BotFather)); the bundled `db` credentials default to
+`playlist9`/`playlist9`. Everything else is optional and has a default baked into
+`app/config.py` — to override one, add it to the bot's `environment:`.
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
 | `STORAGE_CHAT_ID` | — | Channel id (`-100…`) where the bot is admin; enables inline file delivery. |
-| `DATABASE_URL` | — | PostgreSQL DSN for the persistent `file_id` cache. Computed from the bundled `db` service in compose; leave empty to run memory-only. |
-| `POSTGRES_PASSWORD` | `playlist9` | Password for the bundled PostgreSQL; `DATABASE_URL` reuses it. |
+| `DATABASE_HOST` | `db` | PostgreSQL host for the persistent `file_id` cache (the bundled `db` service). |
+| `DATABASE_PORT` | `5432` | PostgreSQL port. |
+| `DATABASE_USER` | `playlist9` | PostgreSQL user — keep it equal to the `db` service's `POSTGRES_USER`. |
+| `DATABASE_PASSWORD` | `playlist9` | PostgreSQL password — keep it equal to the `db` service's `POSTGRES_PASSWORD`. |
+| `DATABASE_NAME` | `playlist9` | PostgreSQL database name — keep it equal to the `db` service's `POSTGRES_DB`. |
 | `MAX_FILE_SIZE_MB` | `50` | Max size of a sent file (Telegram caps bots at 50 MB). |
 | `MAX_RESULTS` | `30` | Results fetched per search. |
+| `PLAYLIST_LIMIT` | `100` | Max tracks listed for a pasted playlist link. |
 | `RESULTS_PER_PAGE` | `10` | Results shown per page. |
 | `AUDIO_QUALITY` | `320` | MP3 quality in kbps (best source, up to 320). |
 | `INLINE_RESULTS` | `20` | Results fetched for an inline query. |
 | `RATE_PER_MINUTE` | `10` | Max downloads a single user may trigger per minute. |
 | `COOKIES_FILE` | — | Path to a `cookies.txt` inside the container; see [Cookies](#-cookies-age-restricted--region-locked-content). |
+| `METRICS_PORT` | `8473` | Port for the built-in status page; `0` disables the HTTP server. |
+| `METRICS_HOST` | `0.0.0.0` | Bind address for the status page inside the container. |
 
 ## 💬 Usage
 
@@ -167,35 +190,45 @@ cookies to get past that:
 
 ## 🏗️ Architecture
 
+The package is grouped by concern: `music/` (engine), `bot/` (Telegram
+presentation), `infra/` (cross-cutting plumbing), `web/` (status dashboard).
+
 ```
-bot.py                      — thin entry point
+bot.py                          — thin entry point
+healthcheck.py                  — Docker HEALTHCHECK script (checks the heartbeat)
 app/
-  config.py                 — settings from environment (Settings)
-  models.py                 — domain models (Track, Meta, AudioFile)
-  metadata.py               — filename cleanup, ID3 tags, cover + thumbnail
-  metadata_provider.py      — metadata enrichment via MusicBrainz / Cover Art Archive
-  external_links.py         — Spotify / Apple Music link → search query
-  store.py                  — PostgreSQL-backed file_id cache (asyncpg)
-  limiter.py                — concurrent download limits + per-user rate limit
-  health.py                 — heartbeat for the healthcheck
-  formatting.py             — results message + inline keyboard
-  messages.py               — all user-facing text in one place
-  sources/base.py           — AudioSource abstraction (extension seam)
-  sources/ytdlp_source.py   — shared yt-dlp base class (download, retries, cookies)
-  sources/youtube.py        — YouTube Music (search via ytmusicapi)
-  sources/soundcloud.py     — SoundCloud (scsearch)
-  service.py                — MusicService: search + download routing
-  caches.py                 — in-memory state (recent searches, inline tracks)
-  deps.py                   — Deps: the dependency bundle handlers close over
-  delivery.py               — download → validate → send pipeline
-  tg_utils.py               — error-tolerant aiogram call wrappers
-  handlers.py               — aiogram router (thin: parse updates, dispatch)
-  application.py            — Dispatcher/Bot wiring, polling, graceful shutdown
-healthcheck.py              — Docker HEALTHCHECK script (checks the heartbeat)
+  config.py                     — settings from environment (Settings)
+  application.py                — Dispatcher/Bot wiring, polling, graceful shutdown
+  models.py                     — shared domain models (Track, Meta, AudioFile)
+  music/
+    service.py                  — MusicService: search + download routing
+    links.py                    — Spotify / Apple Music link, playlist & album scraping
+    metadata.py                 — filename cleanup, ID3 tags, cover + thumbnail
+    metadata_provider.py        — album/cover enrichment (MusicBrainz / Cover Art Archive)
+    sources/base.py             — AudioSource abstraction (extension seam)
+    sources/ytdlp.py            — shared yt-dlp base (download, retries, playlists, cookies)
+    sources/youtube.py          — YouTube Music (search via ytmusicapi)
+    sources/soundcloud.py       — SoundCloud (scsearch)
+  bot/
+    router.py                   — aiogram router (thin: parse updates, dispatch)
+    delivery.py                 — download → validate → send pipeline
+    formatting.py               — result/playlist messages + inline keyboards
+    messages.py                 — all user-facing text in one place
+    caches.py                   — in-memory state (searches, inline tracks, links)
+    deps.py                     — Deps: the dependency bundle handlers close over
+    telegram.py                 — error-tolerant aiogram call wrappers
+  infra/
+    store.py                    — PostgreSQL-backed file_id cache (asyncpg)
+    limiter.py                  — concurrent download limits + per-user rate limit
+    health.py                   — heartbeat for the healthcheck
+    metrics.py                  — in-memory counters, unique users, recent-log buffer
+  web/
+    server.py                   — status page server (aiohttp); / + /api/stats + /healthz
+    templates/status.html       — status page markup
 ```
 
-**Adding a source:** implement `AudioSource` (or subclass `YtDlpSource`) and
-register it in `build_service()` (`app/application.py`).
+**Adding a source:** implement `AudioSource` (or subclass `YtDlpSource`) in
+`app/music/sources/` and register it in `build_service()` (`app/application.py`).
 
 ## 🛠️ Tech stack & dependencies
 

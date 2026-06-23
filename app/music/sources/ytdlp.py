@@ -7,13 +7,13 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import List, Optional, Pattern
+from typing import List, Optional, Pattern, Tuple
 
 import yt_dlp
 
 from ..metadata import fetch_image, finalize_download, finalize_with_metadata
 from ..metadata_provider import enrich
-from ..models import AudioFile, Meta, Track
+from ...models import AudioFile, Meta, Track
 from .base import AudioSource
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,11 @@ class YtDlpSource(AudioSource):
             return []
         return await asyncio.to_thread(self._search, query, limit)
 
+    async def list_playlist(
+        self, url: str, limit: int
+    ) -> Tuple[List[Track], Optional[str]]:
+        return await asyncio.to_thread(self._list_playlist, url, limit)
+
     async def download(
         self, url: str, workdir: str, meta: Optional[Meta] = None
     ) -> AudioFile:
@@ -118,15 +123,43 @@ class YtDlpSource(AudioSource):
                 tracks.append(track)
         return tracks
 
+    def _list_playlist(
+        self, url: str, limit: int
+    ) -> Tuple[List[Track], Optional[str]]:
+        """Flat-extract a playlist's entries (no per-track network calls)."""
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+            "playlistend": limit,
+        }
+        if self._cookiefile and os.path.exists(self._cookiefile):
+            opts["cookiefile"] = self._cookiefile
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        tracks: List[Track] = []
+        for entry in (info.get("entries") or [])[:limit]:
+            track = self._entry_to_track(entry) if entry else None
+            if track:
+                tracks.append(track)
+        return tracks, info.get("title")
+
+    def _canonical_url(self, entry: dict) -> str:
+        """A downloadable URL for a flat-extracted entry.
+
+        yt-dlp's flat entries sometimes carry only a bare id, so subclasses
+        (e.g. YouTube) override this to build a full watch URL."""
+        return entry.get("url") or entry.get("webpage_url") or ""
+
     def _entry_to_track(self, entry: dict) -> Optional[Track]:
-        url = entry.get("url") or entry.get("webpage_url")
         video_id = entry.get("id")
+        url = self._canonical_url(entry)
         if not url and not video_id:
             return None
         return Track(
             id=str(video_id),
             title=entry.get("title") or "Untitled",
-            url=url or "",
+            url=url,
             uploader=entry.get("uploader") or entry.get("channel"),
             duration=entry.get("duration"),
             source=self.name,

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>playlist9_bot · status</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background: #0d1117; color: #e6edf3; }
+  header { padding: 24px 28px 8px; }
+  h1 { margin: 0; font-size: 20px; }
+  h1 a { color: inherit; text-decoration: none; }
+  h1 a:hover { text-decoration: underline; }
+  .sub { color: #8b949e; font-size: 13px; margin-top: 4px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+         background: #3fb950; margin-right: 6px; vertical-align: middle; }
+  .dot.stale { background: #d29922; }
+  .banner { display: none; margin: 8px 28px 0; padding: 12px 16px; border-radius: 10px;
+            background: #3a2a12; border: 1px solid #9e6a1f; color: #f0c674; font-size: 14px; }
+  .banner code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
+  main { padding: 12px 28px 40px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
+  .card.hi { border-color: #1f6feb; }
+  .card .n { font-size: 28px; font-weight: 650; }
+  .card .l { color: #8b949e; font-size: 13px; margin-top: 2px; }
+  .card.bad .n { color: #f85149; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em;
+       color: #8b949e; margin: 28px 0 12px; }
+  .logs { background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
+  .row { display: grid; grid-template-columns: 150px 70px 1fr; gap: 12px;
+         padding: 9px 14px; border-top: 1px solid #21262d; font-size: 13px; }
+  .row:first-child { border-top: none; }
+  .row .t { color: #8b949e; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .lvl { font-weight: 650; }
+  .lvl.WARNING { color: #d29922; }
+  .lvl.ERROR, .lvl.CRITICAL { color: #f85149; }
+  .msg { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .empty { padding: 18px 14px; color: #8b949e; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener">playlist9_bot</a></h1>
+  <div class="sub"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
+</header>
+<div class="banner" id="banner"></div>
+<main>
+  <div class="grid" id="cards"></div>
+  <h2>Recent errors &amp; warnings</h2>
+  <div class="logs" id="logs"></div>
+</main>
+<script>
+const LABELS = __LABELS__;
+const fmtDur = s => {
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600),
+        m = Math.floor(s%3600/60), sec = s%60;
+  return (d?d+"d ":"") + (h?h+"h ":"") + (m?m+"m ":"") + sec + "s";
+};
+const fmtTime = ts => new Date(ts*1000).toLocaleString();
+const esc = t => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function renderBanner(y) {
+  const el = document.getElementById("banner");
+  if (y && y.stale) {
+    el.style.display = "block";
+    el.innerHTML = `⚠️ <b>yt-dlp ${esc(y.version)}</b> is ${y.age_days} days old — `
+      + `YouTube may stop serving formats. Bump the pin in <code>requirements.txt</code> `
+      + `and rebuild (<code>docker compose up -d --build</code>).`;
+  } else {
+    el.style.display = "none";
+  }
+}
+
+function render(d) {
+  renderBanner(d.ytdlp);
+  const cards = document.getElementById("cards");
+  // Highlight cards first (uptime, 24h unique users, yt-dlp build), then counters.
+  const y = d.ytdlp || {};
+  const ytLabel = y.age_days != null ? `yt-dlp · ${y.age_days}d old` : "yt-dlp";
+  const items = [
+    ["Uptime", fmtDur(d.uptime_seconds), false, true],
+    ["Users (24h)", d.unique_users_24h ?? 0, false, true],
+    [ytLabel, y.version ?? "—", !!y.stale, true],
+  ];
+  const c = d.counters || {};
+  const order = Object.keys(LABELS).filter(k => k in c)
+    .concat(Object.keys(c).filter(k => !(k in LABELS)));
+  for (const k of order) {
+    const bad = k.includes("failed") || k === "rate_limited";
+    items.push([LABELS[k] || k, c[k], bad && c[k] > 0, false]);
+  }
+  cards.innerHTML = items.map(([l, n, bad, hi]) =>
+    `<div class="card${bad?" bad":""}${hi?" hi":""}"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`
+  ).join("");
+
+  const logs = document.getElementById("logs");
+  const errs = d.errors || [];
+  logs.innerHTML = errs.length ? errs.map(e =>
+    `<div class="row"><span class="t">${fmtTime(e.ts)}</span>`
+    + `<span class="lvl ${esc(e.level)}">${esc(e.level)}</span>`
+    + `<span class="msg">${esc(e.message)}</span></div>`
+  ).join("") : '<div class="empty">No warnings or errors recorded. ✨</div>';
+}
+
+async function tick() {
+  const dot = document.getElementById("dot"), status = document.getElementById("status");
+  try {
+    const r = await fetch("api/stats", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+    dot.classList.remove("stale");
+    status.textContent = "live · refreshed " + new Date().toLocaleTimeString();
+  } catch (e) {
+    dot.classList.add("stale");
+    status.textContent = "unreachable — retrying…";
+  }
+}
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

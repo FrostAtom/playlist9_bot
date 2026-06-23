@@ -6,17 +6,19 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
-from . import store
-from .caches import SearchCache, TrackCache
+from .bot.caches import LinkCache, SearchCache, TrackCache
+from .bot.deps import Deps
+from .bot.router import build_router
 from .config import Settings
-from .deps import Deps
-from .handlers import build_router
-from .health import heartbeat
-from .limiter import DownloadLimiter, RateLimiter
-from .service import MusicService
-from .sources.soundcloud import SoundCloudSource
-from .sources.youtube import YouTubeMusicSource
-from .store import FileIdStore
+from .infra import store
+from .infra.health import heartbeat
+from .infra.limiter import DownloadLimiter, RateLimiter
+from .infra.metrics import MetricsLogHandler, metrics
+from .infra.store import FileIdStore
+from .music.service import MusicService
+from .music.sources.soundcloud import SoundCloudSource
+from .music.sources.youtube import YouTubeMusicSource
+from .web.server import start_web_server
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +37,21 @@ def build_service(settings: Settings) -> MusicService:
 
 
 async def _amain(settings: Settings) -> None:
+    # Capture WARNING+ logs into the in-memory buffer the status page reads.
+    log_handler = MetricsLogHandler(metrics)
+    log_handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger().addHandler(log_handler)
+
     bot = Bot(token=settings.token)
     dispatcher = Dispatcher()
     # The file_id store is mandatory; create_pool raises SystemExit (→ container
     # restart) if the database can't be reached, so we never run without it.
     pool = await store.create_pool(
-        settings.database_url, password=settings.database_password
+        host=settings.database_host,
+        port=settings.database_port,
+        user=settings.database_user,
+        password=settings.database_password,
+        database=settings.database_name,
     )
     deps = Deps(
         settings=settings,
@@ -52,6 +63,7 @@ async def _amain(settings: Settings) -> None:
         cache=SearchCache(settings.search_cache_size),
         files=FileIdStore(pool),
         inline=TrackCache(),
+        links=LinkCache(settings.search_cache_size),
     )
     dispatcher.include_router(build_router(deps))
 
@@ -66,6 +78,13 @@ async def _amain(settings: Settings) -> None:
         me = await bot.get_me()
         deps.bot_username = me.username or ""
         state["heartbeat"] = asyncio.create_task(heartbeat())
+        if settings.metrics_port:
+            try:
+                state["web"] = await start_web_server(
+                    metrics, settings.metrics_host, settings.metrics_port
+                )
+            except Exception:  # noqa: BLE001 - the status page must never block startup
+                logger.warning("Status page failed to start", exc_info=True)
         if settings.storage_chat_id:
             try:
                 chat = await bot.get_chat(settings.storage_chat_id)
@@ -86,6 +105,9 @@ async def _amain(settings: Settings) -> None:
         task = state.get("heartbeat")
         if task:
             task.cancel()
+        runner = state.get("web")
+        if runner is not None:
+            await runner.cleanup()
         if pool is not None:
             await pool.close()
         await bot.session.close()

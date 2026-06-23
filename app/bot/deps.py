@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .caches import SearchCache, TrackCache
-from .config import Settings
-from .limiter import DownloadLimiter, RateLimiter
-from .service import MusicService
-from .store import FileIdStore
+from .caches import LinkCache, SearchCache, TrackCache
+from ..config import Settings
+from ..infra.limiter import DownloadLimiter, RateLimiter
+from ..infra.store import FileIdStore
+from ..music.service import MusicService
 
 
 @dataclass
@@ -25,6 +25,7 @@ class Deps:
     cache: SearchCache
     files: FileIdStore
     inline: TrackCache
+    links: LinkCache
     # Resolved from the running bot at startup (bot.get_me); used for the inline
     # attribution links. Set by application.py before any update is processed.
     bot_username: str = ""

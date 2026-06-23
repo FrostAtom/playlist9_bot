@@ -6,13 +6,17 @@ from typing import List, Tuple
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from . import messages
-from .models import Track
+from ..models import Track
 
 # callback_data is limited to 64 bytes, so we reference a track by a short
 # token (the results message id) plus its index instead of a full URL.
 PICK_PREFIX = "p:"
 PAGE_PREFIX = "g:"
 TOGGLE_PREFIX = "t:"
+# Playlist prompt choices. Distinct from PICK_PREFIX ("p:") — "po:"/"pl:" don't
+# start with "p:", so the handler filters stay unambiguous.
+PLAYLIST_ONE_PREFIX = "po:"
+PLAYLIST_ALL_PREFIX = "pl:"
 
 # Practical cap for an inline button caption.
 MAX_LABEL = 60
@@ -111,4 +115,69 @@ def results_page(
     rows.append(control)
 
     body = messages.results_header(total, page, pages, source_label(source))
+    return body, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def playlist_prompt_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Two-choice keyboard shown for an ambiguous track-in-a-playlist link."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=messages.BTN_ONLY_TRACK,
+                    callback_data=f"{PLAYLIST_ONE_PREFIX}{token}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=messages.BTN_WHOLE_PLAYLIST,
+                    callback_data=f"{PLAYLIST_ALL_PREFIX}{token}",
+                )
+            ],
+        ]
+    )
+
+
+def playlist_page(
+    tracks: List[Track],
+    page: int,
+    per_page: int,
+    token: str,
+    title: str,
+) -> Tuple[str, InlineKeyboardMarkup]:
+    """Like :func:`results_page` but for a fixed playlist: one button per track
+    and page arrows only (no source toggle — the track set doesn't change)."""
+    total = len(tracks)
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = max(0, min(page, pages - 1))
+    start = page * per_page
+    chunk = tracks[start : start + per_page]
+
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=track_label(track),
+                callback_data=f"{PICK_PREFIX}{token}:{start + offset}",
+            )
+        ]
+        for offset, track in enumerate(chunk)
+    ]
+
+    if pages > 1:
+        control = []
+        if page > 0:
+            control.append(
+                InlineKeyboardButton(
+                    text="◀", callback_data=f"{PAGE_PREFIX}{token}:{page - 1}"
+                )
+            )
+        if page < pages - 1:
+            control.append(
+                InlineKeyboardButton(
+                    text="▶", callback_data=f"{PAGE_PREFIX}{token}:{page + 1}"
+                )
+            )
+        rows.append(control)
+
+    body = messages.playlist_header(title, total, page, pages)
     return body, InlineKeyboardMarkup(inline_keyboard=rows)

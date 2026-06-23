@@ -7,13 +7,23 @@ WELCOME = (
     "search to SoundCloud ☁️) and let you pick.\n"
     "• Or send a *link* — YouTube/SoundCloud download directly; Spotify & Apple "
     "Music links are matched on YouTube Music.\n"
+    "• Send a *playlist or album link* — grab the tracks one by one "
+    "(YouTube, SoundCloud, Spotify, Apple Music).\n"
     "• In any chat, type `@bot_name query` for inline search.\n\n"
-    "Files arrive at up to 320 kbps with cover art and clean tags."
+    "Files arrive at up to 320 kbps with cover art and clean tags.\n\n"
+    "📂 [Source on GitHub](https://github.com/FrostAtom/playlist9_bot)"
 )
 
 DOWNLOADING = "⏳ Downloading audio, please wait..."
 DOWNLOADING_CHOICE = "⏳ Downloading the selected track, please wait..."
 RESOLVING_LINK = "🔗 Reading the link..."
+LOADING_PLAYLIST = "📋 Reading the playlist..."
+PLAYLIST_FAILED = "❌ Couldn't read that playlist. Try sending a track instead."
+PLAYLIST_EMPTY = "The playlist looks empty 😔"
+# Prompt shown when a link is both a single track and a playlist.
+PLAYLIST_PROMPT = "🔗 This link is part of a playlist. What should I grab?"
+BTN_ONLY_TRACK = "🎵 Just this track"
+BTN_WHOLE_PLAYLIST = "📋 The whole playlist"
 QUEUED = "⏳ Queued — the concurrent download limit has been reached..."
 UPLOADING = "📤 Uploading the file..."
 NO_AUDIO = "❌ Could not extract audio from the link."
@@ -38,6 +48,14 @@ def results_header(total: int, page: int, pages: int, source_label: str) -> str:
     text = f"{source_label} · found: {total}"
     if pages > 1:
         text += f" · page {page + 1}/{pages}"
+    return text
+
+
+def playlist_header(title: str, total: int, page: int, pages: int) -> str:
+    text = f"📋 {title} · {total} tracks"
+    if pages > 1:
+        text += f" · page {page + 1}/{pages}"
+    text += "\nTap a track to download it."
     return text
 
 

@@ -16,8 +16,9 @@ from aiogram.types import FSInputFile, Message
 from . import messages
 from .deps import Deps
 from .formatting import display_title
-from .models import Track
-from .tg_utils import safe_delete, safe_edit, safe_inline_edit
+from .telegram import safe_delete, safe_edit, safe_inline_edit
+from ..infra.metrics import metrics
+from ..models import Track
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ async def deliver(
             try:
                 audio = await deps.service.download(ref, workdir)
             except Exception as exc:  # noqa: BLE001
+                metrics.incr("downloads_failed")
                 logger.exception("Download failed")
                 await safe_edit(status, messages.download_failed(exc))
                 return
@@ -77,8 +79,10 @@ async def deliver(
                     await deps.files.put(
                         deps.files.key(ref.source, ref.id), sent.audio.file_id
                     )
+                metrics.incr("downloads_ok")
                 await safe_delete(status)
             except Exception as exc:  # noqa: BLE001
+                metrics.incr("sends_failed")
                 logger.exception("Send failed")
                 await safe_edit(status, messages.send_failed(exc))
 
@@ -99,6 +103,7 @@ async def ensure_file_id(
         return None
 
     if not deps.rate.allow(user_id):
+        metrics.incr("rate_limited")
         await safe_inline_edit(
             bot,
             inline_message_id,

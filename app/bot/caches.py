@@ -10,16 +10,40 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .models import Track
+from ..models import Track
+
+
+# How a paginated result set behaves. "search": cross-source query (toggle +
+# direct picks). "url_playlist": yt/sc playlist, picks download directly.
+# "query_playlist": Spotify/Apple playlist, picks search YouTube Music first.
+SEARCH = "search"
+URL_PLAYLIST = "url_playlist"
+QUERY_PLAYLIST = "query_playlist"
 
 
 @dataclass
 class SearchState:
-    """A search whose results are paginated and can be re-run on another source."""
+    """A paginated result set: a search, or the tracks of a pasted playlist."""
 
     query: str
     source: str
     tracks: List[Track]
+    kind: str = SEARCH
+    #: Playlist title, shown in the header (None for plain searches).
+    title: Optional[str] = None
+
+    @property
+    def is_playlist(self) -> bool:
+        return self.kind != SEARCH
+
+
+@dataclass(frozen=True)
+class PendingLink:
+    """An ambiguous link awaiting the user's track-or-playlist choice."""
+
+    source: str
+    track_url: str
+    playlist_url: str
 
 
 class SearchCache:
@@ -36,6 +60,24 @@ class SearchCache:
             store.popitem(last=False)
 
     def load(self, user_id: int, token: str) -> Optional[SearchState]:
+        return self._data.get(user_id, {}).get(token)
+
+
+class LinkCache:
+    """Per-user store of ambiguous links awaiting a track/playlist choice,
+    keyed by the prompt message id (the same token scheme as searches)."""
+
+    def __init__(self, per_user: int = 20) -> None:
+        self._per_user = per_user
+        self._data: Dict[int, "OrderedDict[str, PendingLink]"] = {}
+
+    def save(self, user_id: int, token: str, link: PendingLink) -> None:
+        store = self._data.setdefault(user_id, OrderedDict())
+        store[token] = link
+        while len(store) > self._per_user:
+            store.popitem(last=False)
+
+    def load(self, user_id: int, token: str) -> Optional[PendingLink]:
         return self._data.get(user_id, {}).get(token)
 
 

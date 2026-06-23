@@ -19,6 +19,10 @@ class Track:
     cover_url: Optional[str] = None
     #: Identifier of the source this track came from (e.g. "youtube").
     source: str = ""
+    #: Set only for playlist items that have no direct download URL (Spotify /
+    #: Apple Music). When present, picking the track searches ``source`` for this
+    #: query and downloads the top match instead of fetching ``url``.
+    query: Optional[str] = None
 
 
 @dataclass(frozen=True)

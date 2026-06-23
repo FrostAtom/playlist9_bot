@@ -47,41 +47,77 @@ Telegram needed) for testing search/download/metadata in isolation.
 ## Architecture
 
 Layered package `app/`, wired in `app/application.py` (`build_service` + `_amain`).
+The layout groups files by concern — `music/` (the engine), `bot/` (Telegram
+presentation), `infra/` (cross-cutting plumbing), `web/` (status dashboard):
 
-- **Sources** (`app/sources/`) implement `AudioSource` (`base.py`): `handles`
-  (is this URL mine?), `search`, `download`. `YtDlpSource` is the shared base
-  doing the actual yt-dlp download. `YouTubeMusicSource` overrides `search` to
-  use `ytmusicapi` (keyless, `songs` filter — clean metadata, no random videos);
-  `SoundCloudSource` uses yt-dlp `scsearch`. Add a platform by subclassing and
-  registering it in `build_service`.
-- **`MusicService`** (`service.py`) is the facade: `search(query, limit, source)`
-  hits one source; `download(ref)` accepts a `Track` (carries authoritative
-  metadata → `Meta`) or a raw URL (metadata derived from the file). `resolve`
-  maps a pasted URL to its source.
-- **External links** (`external_links.py`) recognize Spotify / Apple Music track
-  URLs and scrape artist+title from Open Graph tags (keyless). `on_text` then
-  searches YouTube Music and auto-downloads the top match (those platforms are
-  DRM-protected — no direct download).
-- **Persistence** (`store.py`): `FileIdStore` caches `source:id → file_id` in
-  PostgreSQL (asyncpg) behind an in-memory LRU. Optional — with no `DATABASE_URL`
-  (or the DB unreachable, retried at startup) it degrades to memory-only.
-  `get`/`get_many`/`put` are async, so their callers (`delivery.py`,
-  `handlers.py`) await.
-- **Metadata pipeline** is the subtle part. `sources` call into `metadata.py`:
-  `finalize_with_metadata` (search picks — clean tags known) or
-  `finalize_download` (pasted URLs — clean the messy yt-dlp title). Both embed
-  ID3 tags + cover with mutagen and generate a 320×320 JPEG thumbnail (Pillow)
-  for Telegram's audio preview. `metadata_provider.py` enriches missing
-  album/cover via MusicBrainz + Cover Art Archive (chosen for free, keyless,
-  decent Russian coverage; only called when album or cover is absent).
-- **Handlers** (`handlers.py`) are a deliberately thin aiogram `Router` built by
-  `build_router` — they parse updates and decide *what* to do. The *how* is split
-  out: the download→validate→send pipeline in `delivery.py`, in-memory state
-  (`SearchCache`/`TrackCache`) in `caches.py`, the `Deps` bundle (settings,
-  service, `DownloadLimiter`, `RateLimiter`, caches, Postgres-backed
-  `FileIdStore`) in `deps.py`, and error-tolerant aiogram wrappers in
-  `tg_utils.py`. All bot text lives in `messages.py` (English); keyboards in
-  `formatting.py`.
+```
+app/
+  config.py                  — Settings (env-only, frozen dataclass)
+  application.py             — composition root: build_service + _amain + run
+  models.py                  — shared domain models (Track, Meta, AudioFile)
+  music/                     — search/download engine
+    service.py               — MusicService facade (routes across sources)
+    links.py                 — Spotify/Apple link & playlist/album scraping
+    metadata.py              — filename cleanup, ID3 tags, cover + thumbnail
+    metadata_provider.py     — album/cover enrichment (MusicBrainz / Cover Art Archive)
+    sources/
+      base.py                — AudioSource abstraction (extension seam)
+      ytdlp.py               — shared yt-dlp base (download, retries, playlists, cookies)
+      youtube.py             — YouTube Music (search via ytmusicapi)
+      soundcloud.py          — SoundCloud (scsearch)
+  bot/                       — aiogram presentation layer
+    router.py                — build_router: thin handlers + activity middleware
+    delivery.py              — download → validate → send pipeline
+    formatting.py            — result/playlist messages + inline keyboards
+    messages.py              — all user-facing text
+    caches.py                — in-memory state (SearchCache, TrackCache, LinkCache)
+    deps.py                  — Deps: the dependency bundle handlers close over
+    telegram.py              — error-tolerant aiogram call wrappers
+  infra/                     — cross-cutting infrastructure
+    store.py                 — PostgreSQL file_id cache (asyncpg)
+    limiter.py               — concurrent-download + per-user rate limits
+    health.py                — heartbeat for the Docker healthcheck
+    metrics.py               — counters, unique users, recent-log buffer
+  web/                       — status dashboard
+    server.py                — aiohttp server; / + /api/stats + /healthz
+    templates/status.html    — the page markup
+```
+
+- **Sources** (`app/music/sources/`) implement `AudioSource` (`base.py`):
+  `handles` (is this URL mine?), `search`, `download`, plus `track_url` /
+  `playlist_url` (link classification) and `list_playlist`. `YtDlpSource` is the
+  shared base doing the yt-dlp download and flat playlist enumeration.
+  `YouTubeMusicSource` overrides `search` to use `ytmusicapi` (keyless, `songs`
+  filter); `SoundCloudSource` uses yt-dlp `scsearch`. Add a platform by
+  subclassing and registering it in `build_service`.
+- **`MusicService`** (`music/service.py`) is the facade: `search(query, limit,
+  source)` hits one source; `download(ref)` accepts a `Track` or a raw URL;
+  `resolve`/`link_info` classify a pasted URL; `playlist` enumerates one.
+- **External links** (`music/links.py`) recognize Spotify / Apple Music track,
+  playlist and album URLs and scrape artist+title (keyless). For a single track
+  `on_text` searches YouTube Music and auto-downloads the top match; playlists/
+  albums become a paginated pick list (each item searched on demand).
+- **Persistence** (`infra/store.py`): `FileIdStore` caches `source:id → file_id`
+  in PostgreSQL (asyncpg) behind an in-memory LRU. The connection is built from
+  discrete `DATABASE_HOST/PORT/USER/PASSWORD/NAME` settings (no DSN string to
+  URL-escape) and is mandatory — `create_pool` retries at startup and exits
+  (→ container restart) if the DB never becomes reachable. `get`/`get_many`/`put`
+  are async, so their callers (`bot/delivery.py`, `bot/router.py`) await.
+- **Metadata pipeline** is the subtle part. `sources` call into
+  `music/metadata.py`: `finalize_with_metadata` (search picks — clean tags known)
+  or `finalize_download` (pasted URLs — clean the messy yt-dlp title). Both embed
+  ID3 tags + cover with mutagen and generate a 320×320 JPEG thumbnail (Pillow).
+  `music/metadata_provider.py` enriches missing album/cover via MusicBrainz +
+  Cover Art Archive (only when album or cover is absent).
+- **Bot** (`bot/router.py`) is a deliberately thin aiogram `Router` built by
+  `build_router` — it parses updates and decides *what* to do. The *how* is split
+  out: the download→validate→send pipeline in `bot/delivery.py`, in-memory state
+  in `bot/caches.py`, the `Deps` bundle in `bot/deps.py`, and error-tolerant
+  aiogram wrappers in `bot/telegram.py`. All bot text lives in `bot/messages.py`
+  (English); keyboards in `bot/formatting.py`.
+- **Status dashboard** (`web/server.py`) serves a live metrics + error-log page,
+  fed by `infra/metrics.py` (incremented across `bot/`) and a yt-dlp staleness
+  check.
 
 ## Cross-cutting mechanics (read before touching handlers)
 
@@ -123,12 +159,18 @@ Layered package `app/`, wired in `app/application.py` (`build_service` + `_amain
 - The bot's `@username` (used for inline attribution links) is resolved at
   startup via `bot.get_me()` and stored on `Deps.bot_username` — never hardcode
   it.
-- Config is env-only, set in the compose `environment:` block (`config.py`,
-  frozen `Settings`). Empty/blank values fall back to defaults via `_env_int` /
-  `_env_str`, so unset fields never crash startup. Notable: `AUDIO_QUALITY`
-  defaults to `320`; `DATABASE_URL` (Postgres, preset to the compose `db`
-  service), `COOKIES_FILE` (yt-dlp cookies, only used if the path exists), and
-  `RATE_PER_MINUTE` are all optional.
-- Compose now runs **two services** (`bot` + `db`). The `db` is required for
-  persistence but the bot still starts without it (memory-only). For a quick
-  one-off container (the `docker run` iterate path) just omit `DATABASE_URL`.
+- Config is env-only, set as literal values in the compose `environment:` blocks
+  (`config.py`, frozen `Settings`) — no `${...}` interpolation and no `.env`, so
+  the stack imports cleanly on CasaOS/Portainer. Empty/blank values fall back to
+  defaults via `_env_int` / `_env_str`, so unset fields never crash startup.
+  Notable: `AUDIO_QUALITY` defaults to `320`; the Postgres connection is discrete
+  (`DATABASE_HOST/PORT/USER/PASSWORD/NAME`, defaulting to the bundled `db`
+  service); `METRICS_PORT` (status page) defaults to `8473`; `COOKIES_FILE`
+  (yt-dlp cookies, only used if the path exists) and `RATE_PER_MINUTE` are
+  optional.
+- Compose runs **two services** (`bot` + `db`), wired by literal matching creds
+  (`DATABASE_*` on the bot must equal the `db` service's `POSTGRES_*`). The DB is
+  mandatory at runtime — the bot exits and restarts until Postgres is reachable.
+  For a quick one-off container (the `docker run` iterate path), the discrete
+  `DATABASE_*` defaults point at host `db`, so set `DATABASE_HOST` or expect the
+  startup DB-connect to fail.

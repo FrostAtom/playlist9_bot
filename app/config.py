@@ -34,6 +34,9 @@ class Settings:
     max_file_size: int = 50 * 1024 * 1024
     # Total number of results to fetch for a query.
     max_results: int = 30
+    # Max tracks listed for a pasted playlist link (kept higher than search:
+    # playlists are explicit, so the user wants more of them).
+    playlist_limit: int = 100
     # How many results to show per page (one track per button).
     results_per_page: int = 10
     # MP3 quality in kbps; the best available source audio is fetched and
@@ -54,30 +57,35 @@ class Settings:
     # downloaded tracks and obtain a file_id, so inline mode can deliver files.
     # When unset, inline mode can only re-send already-cached tracks.
     storage_chat_id: Optional[int] = None
-    # PostgreSQL DSN for the persistent file_id cache. Required in production
-    # (the bot refuses to start without a reachable database). Left blank only
-    # for offline unit tests that build a MusicService directly.
-    database_url: str = ""
-    # Database password, supplied separately from the DSN so special characters
-    # can't corrupt the URL; asyncpg applies it verbatim. Empty means the
-    # password (if any) is taken from the DSN as-is.
-    database_password: str = ""
+    # PostgreSQL connection for the persistent file_id cache, as discrete fields
+    # (passed straight to asyncpg — no DSN string to URL-escape). The defaults
+    # point at the bundled compose `db` service; the bot refuses to start if the
+    # database is unreachable. Offline unit tests build a MusicService directly
+    # and never open a connection, so these are never touched there.
+    database_host: str = "db"
+    database_port: int = 5432
+    database_user: str = "playlist9"
+    database_password: str = "playlist9"
+    database_name: str = "playlist9"
     # Path to a Netscape-format cookies.txt passed to yt-dlp (for age-restricted
     # or region-locked content). When unset or missing, no cookies are used.
     cookies_file: str = ""
+    # Port for the built-in status page (metrics + recent error logs). Set to 0
+    # to disable the HTTP server entirely. Bound to 0.0.0.0 inside the container;
+    # publish/proxy it deliberately — there is no authentication.
+    metrics_port: int = 8473
+    metrics_host: str = "0.0.0.0"
 
     @classmethod
     def from_env(cls) -> "Settings":
         token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
         if not token:
             raise SystemExit("TELEGRAM_BOT_TOKEN environment variable is not set")
-        database_url = _env_str("DATABASE_URL", "")
-        if not database_url:
-            raise SystemExit("DATABASE_URL environment variable is not set")
         return cls(
             token=token,
             max_file_size=_env_int("MAX_FILE_SIZE_MB", 50) * 1024 * 1024,
             max_results=_env_int("MAX_RESULTS", 30),
+            playlist_limit=_env_int("PLAYLIST_LIMIT", 100),
             results_per_page=_env_int("RESULTS_PER_PAGE", 10),
             audio_quality=_env_str("AUDIO_QUALITY", "320"),
             inline_results=_env_int("INLINE_RESULTS", 20),
@@ -87,7 +95,12 @@ class Settings:
             download_total=_env_int("DOWNLOAD_TOTAL", 8),
             rate_per_minute=_env_int("RATE_PER_MINUTE", 10),
             storage_chat_id=_env_int("STORAGE_CHAT_ID", 0) or None,
-            database_url=database_url,
-            database_password=_env_str("DATABASE_PASSWORD", ""),
+            database_host=_env_str("DATABASE_HOST", "db"),
+            database_port=_env_int("DATABASE_PORT", 5432),
+            database_user=_env_str("DATABASE_USER", "playlist9"),
+            database_password=_env_str("DATABASE_PASSWORD", "playlist9"),
+            database_name=_env_str("DATABASE_NAME", "playlist9"),
             cookies_file=_env_str("COOKIES_FILE", ""),
+            metrics_port=_env_int("METRICS_PORT", 8473),
+            metrics_host=_env_str("METRICS_HOST", "0.0.0.0"),
         )

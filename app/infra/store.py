@@ -109,30 +109,39 @@ class FileIdStore:
 
 
 async def create_pool(
-    dsn: str,
     *,
-    password: Optional[str] = None,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
     retries: int = 10,
     delay: float = 2.0,
 ):
     """Create an asyncpg pool and ensure the schema, retrying while the database
     starts up (compose brings it up alongside the bot).
 
-    ``password`` is applied separately from the DSN (so special characters can't
-    corrupt the URL); when falsy, the DSN is used as-is. The database is
+    Connection parameters are passed to asyncpg as discrete fields, so a password
+    with special characters never has to be URL-escaped. The database is
     mandatory: if it never becomes reachable this raises ``SystemExit`` so the
     container exits and is restarted by Docker — we never run without persistence.
     """
     try:
         import asyncpg
     except ImportError:
-        raise SystemExit("asyncpg is not installed but DATABASE_URL is set")
+        raise SystemExit("asyncpg is not installed but a database is configured")
 
     last_error: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
             pool = await asyncpg.create_pool(
-                dsn, password=password or None, min_size=1, max_size=5
+                host=host,
+                port=port,
+                user=user,
+                password=password or None,
+                database=database,
+                min_size=1,
+                max_size=5,
             )
             async with pool.acquire() as conn:
                 await conn.execute(_SCHEMA)

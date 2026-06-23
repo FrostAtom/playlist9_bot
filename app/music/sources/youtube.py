@@ -12,11 +12,19 @@ import re
 import threading
 from typing import List, Optional
 
-from ..models import Track
-from .ytdlp_source import YtDlpSource, compile_patterns
+from ...models import Track
+from .ytdlp import YtDlpSource, compile_patterns
 
 # Bump the low-res thumbnail YouTube Music returns (w120-h120) to a usable size.
 _THUMB_SIZE = re.compile(r"w\d+-h\d+")
+
+# A video id appears as ?v=…, in a youtu.be/… short link, or a /shorts/… path.
+_VIDEO_ID = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/)([\w-]{6,})", re.IGNORECASE)
+_LIST_ID = re.compile(r"[?&]list=([\w-]+)", re.IGNORECASE)
+# Auto-generated lists we can't (or shouldn't) enumerate: radio/mixes are
+# effectively infinite; Liked/Watch-Later need the owner's auth. Treat a link
+# carrying one of these as a plain single track.
+_VIRTUAL_LIST = ("RD", "LL", "WL", "LM")
 
 
 class YouTubeMusicSource(YtDlpSource):
@@ -40,6 +48,25 @@ class YouTubeMusicSource(YtDlpSource):
 
                     self._yt = YTMusic()
         return self._yt
+
+    def track_url(self, text: str) -> Optional[str]:
+        match = _VIDEO_ID.search(text)
+        return f"https://music.youtube.com/watch?v={match.group(1)}" if match else None
+
+    def playlist_url(self, text: str) -> Optional[str]:
+        match = _LIST_ID.search(text)
+        if not match:
+            return None
+        list_id = match.group(1)
+        if list_id.startswith(_VIRTUAL_LIST):
+            return None
+        return f"https://www.youtube.com/playlist?list={list_id}"
+
+    def _canonical_url(self, entry: dict) -> str:
+        video_id = entry.get("id")
+        if video_id:
+            return f"https://music.youtube.com/watch?v={video_id}"
+        return entry.get("url") or entry.get("webpage_url") or ""
 
     async def search(self, query: str, limit: int) -> List[Track]:
         return await asyncio.to_thread(self._search, query, limit)

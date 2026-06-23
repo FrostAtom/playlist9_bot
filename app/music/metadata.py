@@ -22,7 +22,7 @@ from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1
 from mutagen.mp3 import MP3
 from PIL import Image
 
-from .models import AudioFile
+from ..models import AudioFile
 
 logger = logging.getLogger(__name__)
 
