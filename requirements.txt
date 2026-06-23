@@ -3,3 +3,4 @@ yt-dlp==2026.6.9
 mutagen==1.47.0
 ytmusicapi==1.12.1
 pillow==11.0.0
+asyncpg==0.30.0

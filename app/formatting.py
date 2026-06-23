@@ -48,11 +48,11 @@ def source_short(source: str) -> str:
 
 
 def track_label(track: Track) -> str:
+    # No source badge here: pick buttons show just the clean "Artist — Title".
     label = f"{track.uploader} — {track.title}" if track.uploader else track.title
     if len(label) > MAX_LABEL:
         label = label[: MAX_LABEL - 1].rstrip() + "…"
-    badge = SOURCE_BADGES.get(track.source)
-    return f"{badge} {label}" if badge else label
+    return label
 
 
 def results_page(

@@ -6,21 +6,30 @@ services:
     build: .
     container_name: playlist9_bot
     restart: unless-stopped
-    # Configure the bot here. Fill TELEGRAM_BOT_TOKEN (required). Optionally set
-    # STORAGE_CHAT_ID to enable inline file delivery. Everything else may stay
-    # empty — blank values fall back to the defaults shown in the comments.
+    # Config comes from a local .env file: copy .env.example to .env and fill it
+    # in (.env is gitignored, so secrets stay out of version control). Blank or
+    # unset values fall back to the defaults in app/config.py.
     environment:
-      TELEGRAM_BOT_TOKEN: ""
-      STORAGE_CHAT_ID: ""
-      MAX_FILE_SIZE_MB: ""        # default 50
-      MAX_RESULTS: ""             # default 30
-      RESULTS_PER_PAGE: ""        # default 10
-      AUDIO_QUALITY: ""           # default 192
-      INLINE_RESULTS: ""          # default 20
-      SEARCH_CACHE_SIZE: ""       # default 20
-      RESULTS_TTL_SECONDS: ""     # default 300 (auto-delete search results)
-      DOWNLOAD_PER_USER: ""       # default 3
-      DOWNLOAD_TOTAL: ""          # default 8
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?copy .env.example to .env and set TELEGRAM_BOT_TOKEN}"
+      STORAGE_CHAT_ID: ${STORAGE_CHAT_ID:-}
+      # Persistent file_id cache — points at the bundled `db` service below.
+      DATABASE_URL: "postgresql://playlist9:${POSTGRES_PASSWORD:-playlist9}@db:5432/playlist9"
+      COOKIES_FILE: ${COOKIES_FILE:-}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-}
+      MAX_RESULTS: ${MAX_RESULTS:-}
+      RESULTS_PER_PAGE: ${RESULTS_PER_PAGE:-}
+      AUDIO_QUALITY: ${AUDIO_QUALITY:-}
+      INLINE_RESULTS: ${INLINE_RESULTS:-}
+      SEARCH_CACHE_SIZE: ${SEARCH_CACHE_SIZE:-}
+      RESULTS_TTL_SECONDS: ${RESULTS_TTL_SECONDS:-}
+      DOWNLOAD_PER_USER: ${DOWNLOAD_PER_USER:-}
+      DOWNLOAD_TOTAL: ${DOWNLOAD_TOTAL:-}
+      RATE_PER_MINUTE: ${RATE_PER_MINUTE:-}
+    volumes:
+      - ./cookies:/cookies:ro
+    depends_on:
+      db:
+        condition: service_healthy
     # Give the bot time to finish in-flight work on SIGTERM before SIGKILL.
     stop_grace_period: 30s
     healthcheck:
@@ -29,3 +38,25 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+
+  db:
+    image: postgres:16-alpine
+    container_name: playlist9_db
+    restart: unless-stopped
+    # Local-only credentials (the DB is not exposed outside the compose network).
+    # Set POSTGRES_PASSWORD in .env to change the password (DATABASE_URL reuses it).
+    environment:
+      POSTGRES_USER: playlist9
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-playlist9}
+      POSTGRES_DB: playlist9
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playlist9 -d playlist9"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:

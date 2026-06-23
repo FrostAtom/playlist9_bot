@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
+import time
+from pathlib import Path
 from typing import List, Optional, Pattern
 
 import yt_dlp
@@ -13,8 +16,20 @@ from ..metadata_provider import enrich
 from ..models import AudioFile, Meta, Track
 from .base import AudioSource
 
+logger = logging.getLogger(__name__)
 
-def extract_audio(url: str, workdir: str, quality: str) -> dict:
+# Download errors worth retrying are transient (network blips, 5xx, throttling);
+# these substrings mark a *permanent* failure that retrying can't fix.
+_PERMANENT_ERROR = re.compile(
+    r"(unavailable|private|removed|deleted|copyright|not available|"
+    r"does not exist|age|sign in to confirm|members[- ]only|geo)",
+    re.IGNORECASE,
+)
+
+
+def extract_audio(
+    url: str, workdir: str, quality: str, cookiefile: Optional[str] = None
+) -> dict:
     """Download ``url`` as an MP3 into ``workdir``; return the yt-dlp info dict.
 
     A ``ytsearchN:`` / ``scsearchN:`` query also works as ``url`` when a source
@@ -27,6 +42,11 @@ def extract_audio(url: str, workdir: str, quality: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "writethumbnail": True,
+        # Let yt-dlp ride out transient network hiccups before raising.
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 2,
+        "socket_timeout": 30,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -40,6 +60,8 @@ def extract_audio(url: str, workdir: str, quality: str) -> dict:
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
         ],
     }
+    if cookiefile and os.path.exists(cookiefile):
+        opts["cookiefile"] = cookiefile
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=True)
 
@@ -56,8 +78,11 @@ class YtDlpSource(AudioSource):
     url_patterns: List[Pattern[str]] = []
     search_prefix: Optional[str] = None
 
-    def __init__(self, audio_quality: str = "192") -> None:
+    def __init__(
+        self, audio_quality: str = "320", cookiefile: Optional[str] = None
+    ) -> None:
         self._quality = audio_quality
+        self._cookiefile = cookiefile or None
 
     def handles(self, text: str) -> Optional[str]:
         for pattern in self.url_patterns:
@@ -80,6 +105,8 @@ class YtDlpSource(AudioSource):
 
     def _search(self, query: str, limit: int) -> List[Track]:
         opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
+        if self._cookiefile and os.path.exists(self._cookiefile):
+            opts["cookiefile"] = self._cookiefile
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(
                 f"{self.search_prefix}{limit}:{query}", download=False
@@ -108,7 +135,7 @@ class YtDlpSource(AudioSource):
     def _download(
         self, url: str, workdir: str, meta: Optional[Meta] = None
     ) -> AudioFile:
-        info = extract_audio(url, workdir, self._quality)
+        info = self._extract_with_retry(url, workdir)
         if meta:
             album, cover_url = meta.album, meta.cover_url
             if not album or not cover_url:
@@ -122,6 +149,42 @@ class YtDlpSource(AudioSource):
                 cover_bytes=fetch_image(cover_url),
             )
         return finalize_download(workdir, info)
+
+    def _extract_with_retry(
+        self, url: str, workdir: str, attempts: int = 3
+    ) -> dict:
+        """Run :func:`extract_audio`, retrying transient failures with backoff.
+
+        The work dir is wiped between attempts so a half-written file from a
+        failed try can't be picked up as the result.
+        """
+        delay = 2.0
+        for attempt in range(1, attempts + 1):
+            try:
+                return extract_audio(url, workdir, self._quality, self._cookiefile)
+            except yt_dlp.utils.DownloadError as exc:
+                if attempt >= attempts or _PERMANENT_ERROR.search(str(exc)):
+                    raise
+                logger.warning(
+                    "Download attempt %d/%d failed (%s); retrying in %.0fs",
+                    attempt,
+                    attempts,
+                    exc,
+                    delay,
+                )
+                _clear_dir(workdir)
+                time.sleep(delay)
+                delay *= 2
+        # Unreachable: the loop either returns or raises.
+        raise RuntimeError("retry loop exhausted")
+
+
+def _clear_dir(workdir: str) -> None:
+    for path in Path(workdir).iterdir():
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def compile_patterns(*patterns: str) -> List[Pattern[str]]:

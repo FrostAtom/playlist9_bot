@@ -26,11 +26,12 @@ from aiogram.types import (
     Message,
 )
 
-from . import formatting, messages
+from . import external_links, formatting, messages
 from .config import Settings
-from .limiter import DownloadLimiter
+from .limiter import DownloadLimiter, RateLimiter
 from .models import Track
 from .service import MusicService
+from .store import FileIdStore
 
 logger = logging.getLogger(__name__)
 
@@ -60,28 +61,6 @@ class SearchCache:
         return self._data.get(user_id, {}).get(token)
 
 
-class FileIdCache:
-    """Remembers Telegram file_ids of sent tracks so inline mode can re-send
-    them instantly (as playable audio) without re-downloading."""
-
-    def __init__(self, capacity: int = 500) -> None:
-        self._cap = capacity
-        self._data: "OrderedDict[str, str]" = OrderedDict()
-
-    @staticmethod
-    def key(source: str, track_id: str) -> str:
-        return f"{source}:{track_id}"
-
-    def get(self, key: str) -> Optional[str]:
-        return self._data.get(key)
-
-    def put(self, key: str, file_id: str) -> None:
-        self._data[key] = file_id
-        self._data.move_to_end(key)
-        while len(self._data) > self._cap:
-            self._data.popitem(last=False)
-
-
 class TrackCache:
     """Short-lived store of tracks offered inline, keyed by inline result id,
     so a chosen result can be downloaded and delivered."""
@@ -105,8 +84,9 @@ class Deps:
     settings: Settings
     service: MusicService
     limiter: DownloadLimiter
+    rate: RateLimiter
     cache: SearchCache
-    files: FileIdCache
+    files: FileIdStore
     inline: TrackCache
     # Resolved from the running bot at startup (bot.get_me); used for the inline
     # attribution links. Set by application.py before any update is processed.
@@ -161,13 +141,47 @@ def build_router(deps: Deps) -> Router:
     @router.message(F.text & ~F.text.startswith("/"))
     async def on_text(message: Message) -> None:
         text = message.text.strip()
+        user_id = message.from_user.id
         # The user's request is removed right away; bot replies stand on their own.
         await _safe_delete(message)
 
         match = deps.service.resolve(text)
-        if match:
-            status = await message.answer(messages.DOWNLOADING)
-            await _deliver(deps, message.chat.id, message.from_user.id, match[1], status)
+        # Spotify / Apple Music links can't be downloaded directly; we recognize
+        # them so we can resolve a query and find the track on YouTube Music.
+        external_url = None if match else external_links.detect(text)
+
+        if match or external_url:
+            if not deps.rate.allow(user_id):
+                notice = await message.answer(
+                    messages.rate_limited(
+                        deps.settings.rate_per_minute,
+                        deps.rate.retry_after(user_id),
+                    )
+                )
+                _delete_after(notice, 15)
+                return
+            if match:
+                status = await message.answer(messages.DOWNLOADING)
+                await _deliver(deps, message.chat.id, user_id, match[1], status)
+                return
+            status = await message.answer(messages.RESOLVING_LINK)
+            external = await asyncio.to_thread(external_links.resolve, text)
+            if external is None:
+                await _safe_edit(status, messages.LINK_FAILED)
+                return
+            source = deps.service.default_source()
+            try:
+                tracks = await deps.service.search(
+                    external.query, deps.settings.max_results, source
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Link search failed")
+                await _safe_edit(status, messages.SEARCH_ERROR)
+                return
+            if not tracks:
+                await _safe_edit(status, messages.link_not_found(external.provider))
+                return
+            await _deliver(deps, message.chat.id, user_id, tracks[0], status)
             return
 
         status = await message.answer(messages.searching(text))
@@ -198,6 +212,16 @@ def build_router(deps: Deps) -> Router:
         state = deps.cache.load(callback.from_user.id, token)
         if state is None or index is None or index >= len(state.tracks):
             await callback.answer(messages.RESULTS_EXPIRED, show_alert=True)
+            return
+
+        if not deps.rate.allow(callback.from_user.id):
+            await callback.answer(
+                messages.rate_limited(
+                    deps.settings.rate_per_minute,
+                    deps.rate.retry_after(callback.from_user.id),
+                ),
+                show_alert=True,
+            )
             return
 
         await callback.answer()
@@ -273,11 +297,14 @@ def build_router(deps: Deps) -> Router:
             await query.answer([], cache_time=5)
             return
 
+        # One round-trip to resolve which results are already on Telegram.
+        keys = [deps.files.key(t.source, t.id) for t in tracks[:limit]]
+        cached = await deps.files.get_many(keys)
         results = []
         for track in tracks[:limit]:
             key = deps.files.key(track.source, track.id)
             title = _display_title(track)
-            file_id = deps.files.get(key)
+            file_id = cached.get(key)
             if file_id:
                 # Already on Telegram's servers — send it as playable audio.
                 results.append(
@@ -362,13 +389,23 @@ async def _ensure_file_id(
     """Return a Telegram file_id for the track, downloading + uploading to the
     storage chat if needed. Edits the inline message with an error otherwise."""
     key = deps.files.key(track.source, track.id)
-    file_id = deps.files.get(key)
+    file_id = await deps.files.get(key)
     if file_id:
         return file_id
 
     if not deps.settings.storage_chat_id:
         title = _display_title(track)
         await _safe_inline_edit(bot, inline_message_id, f"🎵 {title}\n{track.url}")
+        return None
+
+    if not deps.rate.allow(user_id):
+        await _safe_inline_edit(
+            bot,
+            inline_message_id,
+            messages.rate_limited(
+                deps.settings.rate_per_minute, deps.rate.retry_after(user_id)
+            ),
+        )
         return None
 
     try:
@@ -402,7 +439,7 @@ async def _ensure_file_id(
 
     if not sent.audio:
         return None
-    deps.files.put(key, sent.audio.file_id)
+    await deps.files.put(key, sent.audio.file_id)
     return sent.audio.file_id
 
 
@@ -456,7 +493,7 @@ async def _deliver(
                     thumbnail=thumbnail,
                 )
                 if isinstance(ref, Track) and sent.audio:
-                    deps.files.put(
+                    await deps.files.put(
                         deps.files.key(ref.source, ref.id), sent.audio.file_id
                     )
                 await _safe_delete(status)

@@ -1,2 +1,6 @@
 .claude
 .env
+
+# yt-dlp cookies (treat like a password) — keep the folder, ignore its contents
+cookies/*
+!cookies/.gitkeep

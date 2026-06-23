@@ -1,7 +1,7 @@
 # 🎵 Music Downloader Bot
 
 A Telegram bot that searches and downloads music from multiple sources and sends
-it as a tagged MP3 (192 kbps, with cover art and metadata). Built with
+it as a tagged MP3 (up to 320 kbps, with cover art and metadata). Built with
 [aiogram](https://github.com/aiogram/aiogram) 3, powered by `yt-dlp` + `ffmpeg`,
 and shipped as a Docker image.
 
@@ -24,32 +24,43 @@ open the chat, send a track name, and pick a result.
   downloaded on selection and the placeholder is replaced with the audio
   (requires `STORAGE_CHAT_ID`, see below).
 - **Download by link** — `youtube.com`, `youtu.be`, `music.youtube.com`,
-  `soundcloud.com`.
-- **Paginated results** — "Artist — Title" buttons, 10 per page; the ◀/▶ arrows
-  appear only when there is somewhere to go.
+  `soundcloud.com`. **Spotify** and **Apple Music** track links are also
+  accepted: the bot reads the artist + title and finds a match on YouTube Music
+  (those platforms are DRM-protected and can't be downloaded directly).
+- **Best available quality** — fetches the best source audio and sends MP3 at up
+  to **320 kbps**.
+- **Persistent cache** — delivered tracks are remembered in **PostgreSQL**
+  (`file_id`), so re-requesting one (or sending it inline) is instant after a
+  restart, with no re-download.
+- **Paginated results** — clean "Artist — Title" buttons, 10 per page; the ◀/▶
+  arrows appear only when there is somewhere to go.
 - **Clean metadata** — MP3 files get tags (title, artist, album) and cover art
   embedded via `mutagen`, plus a dedicated 320×320 thumbnail for Telegram's
   preview. Missing album/cover are filled from **MusicBrainz + Cover Art
   Archive** (free, keyless; chosen after testing — it covers Russian music
   better than TheAudioDB/Discogs).
-- **Concurrency limits** — up to 3 simultaneous downloads per user and 8 in
-  total; requests beyond that are queued with a notice.
-- **Responsive** — downloads never block the bot; you can flip pages and queue
-  more tracks while one is downloading.
-- **/clear** — removes every bot message and query from the chat, keeping only
-  the delivered tracks.
+- **Concurrency & rate limits** — up to 3 simultaneous downloads per user and 8
+  in total (extra requests are queued with a notice), plus a cap of 10 downloads
+  per user per minute.
+- **Cookies support** — point yt-dlp at a `cookies.txt` for age-restricted or
+  region-locked content (see below).
+- **Resilient downloads** — transient network/extractor failures are retried
+  with backoff before giving up.
+- **Ephemeral chat** — your query message is deleted immediately and the
+  search-results message auto-deletes after a few minutes; only the delivered
+  tracks stay.
 - **Healthcheck** (event-loop heartbeat) and **graceful shutdown** on SIGTERM.
 
 ## 🚀 Quick start
 
 ### Run the published image (no clone needed)
 
-Grab just the compose file, set your token in its `environment:` block, and pull
-the prebuilt image from GHCR:
+Grab the compose file, drop your token into a `.env` next to it, and pull the
+prebuilt image from GHCR:
 
 ```sh
 curl -O https://raw.githubusercontent.com/FrostAtom/playlist9_bot/main/docker-compose.yml
-# edit docker-compose.yml → environment → TELEGRAM_BOT_TOKEN: "123456:ABC-DEF..."
+echo "TELEGRAM_BOT_TOKEN=123456:ABC-DEF..." > .env   # only the token is required
 docker compose pull
 docker compose up -d
 docker compose logs -f
@@ -63,31 +74,44 @@ every push to `main`.
 ```sh
 git clone https://github.com/FrostAtom/playlist9_bot.git
 cd playlist9_bot
-# edit docker-compose.yml → environment → TELEGRAM_BOT_TOKEN
+cp .env.example .env          # then edit .env → TELEGRAM_BOT_TOKEN=...
 docker compose up -d --build
 ```
 
 ## ⚙️ Configuration
 
-All configuration lives in the `environment:` block of `docker-compose.yml`.
-Only `TELEGRAM_BOT_TOKEN` is required (get one from
-[@BotFather](https://t.me/BotFather)); leave any other field empty to use its
-default.
+Configuration is read from a local **`.env`** file (gitignored, so secrets never
+land in git). Copy the template and fill it in — only `TELEGRAM_BOT_TOKEN` is
+required (get one from [@BotFather](https://t.me/BotFather)); leave anything else
+blank to use its default.
+
+```sh
+cp .env.example .env
+# edit .env → TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+```
+
+Compose reads `.env` automatically and injects the values into the container.
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | — | **Required.** Bot token from @BotFather. |
 | `STORAGE_CHAT_ID` | — | Channel id (`-100…`) where the bot is admin; enables inline file delivery. |
-| `MAX_FILE_SIZE_MB` | `50` | Max size of a sent file (Telegram caps bots at 50). |
+| `DATABASE_URL` | — | PostgreSQL DSN for the persistent `file_id` cache. Computed from the bundled `db` service in compose; leave empty to run memory-only. |
+| `POSTGRES_PASSWORD` | `playlist9` | Password for the bundled PostgreSQL; `DATABASE_URL` reuses it. |
+| `MAX_FILE_SIZE_MB` | `50` | Max size of a sent file (Telegram caps bots at 50 MB). |
 | `MAX_RESULTS` | `30` | Results fetched per search. |
 | `RESULTS_PER_PAGE` | `10` | Results shown per page. |
-| `AUDIO_QUALITY` | `192` | MP3 quality in kbps. |
+| `AUDIO_QUALITY` | `320` | MP3 quality in kbps (best source, up to 320). |
+| `INLINE_RESULTS` | `20` | Results fetched for an inline query. |
+| `RATE_PER_MINUTE` | `10` | Max downloads a single user may trigger per minute. |
+| `COOKIES_FILE` | — | Path to a `cookies.txt` inside the container; see [Cookies](#-cookies-age-restricted--region-locked-content). |
 
 ## 💬 Usage
 
 1. Open the bot, send `/start`.
-2. Send a track name, or paste a link.
-3. Get an MP3 back. `/clear` wipes the chat of everything except tracks.
+2. Send a track name, or paste a link (YouTube, SoundCloud, Spotify, Apple Music).
+3. Get an MP3 back. Your query and the search results clean themselves up; only
+   the delivered tracks stay.
 
 ### Inline mode setup
 
@@ -102,16 +126,44 @@ To send actual files inline, do the one-time setup:
 Without `STORAGE_CHAT_ID`, inline mode still re-sends already-cached tracks as
 files and falls back to a link for new ones.
 
+## 🍪 Cookies (age-restricted / region-locked content)
+
+Some tracks won't download without a logged-in session (age-gated videos,
+region-locked or "sign in to confirm" content). You can hand yt-dlp your browser
+cookies to get past that:
+
+1. Install a cookies exporter extension — e.g. **"Get cookies.txt LOCALLY"**
+   ([Chrome](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc))
+   — it exports in the Netscape `cookies.txt` format yt-dlp expects.
+2. Log in to YouTube in your browser, open the exporter **on a `youtube.com`
+   tab**, and export. Save the file as `cookies.txt`.
+3. Drop it into the `cookies/` folder next to `docker-compose.yml` (it's mounted
+   into the container at `/cookies`), and set in the bot's `environment:`:
+
+   ```yaml
+   COOKIES_FILE: /cookies/cookies.txt
+   ```
+
+4. `docker compose up -d`. If the path is empty or the file is missing, the bot
+   simply runs without cookies.
+
+> Treat `cookies.txt` like a password — it grants access to your account. Keep
+> it private; it's already covered by `.gitignore`.
+
 ## 🧠 How it works
 
 - **Search** goes through YouTube Music (`ytmusicapi`, `songs` filter) or
   SoundCloud (`yt-dlp` `scsearch`), one source at a time, switchable via the ⇄
   button.
 - **Download** always pulls the audio with `yt-dlp` + `ffmpeg` and converts to
-  MP3. YouTube Music supplies authoritative metadata; gaps are enriched from
-  MusicBrainz.
-- **Spotify** is intentionally not included — it requires paid API access and
-  is DRM-protected.
+  MP3 (up to 320 kbps). YouTube Music supplies authoritative metadata; gaps are
+  enriched from MusicBrainz.
+- **Spotify / Apple Music** links can't be downloaded directly (DRM), so the bot
+  reads the track's artist + title from the page's Open Graph tags and searches
+  YouTube Music for a match — no API keys required.
+- **Delivered `file_id`s** are stored in PostgreSQL, so the same track re-sends
+  instantly later (and inline mode serves it as playable audio) without a
+  re-download.
 
 ## 🏗️ Architecture
 
@@ -122,12 +174,14 @@ app/
   models.py                 — domain models (Track, Meta, AudioFile)
   metadata.py               — filename cleanup, ID3 tags, cover + thumbnail
   metadata_provider.py      — metadata enrichment via MusicBrainz / Cover Art Archive
-  limiter.py                — concurrent download limits (per-user / total)
+  external_links.py         — Spotify / Apple Music link → search query
+  store.py                  — PostgreSQL-backed file_id cache (asyncpg)
+  limiter.py                — concurrent download limits + per-user rate limit
   health.py                 — heartbeat for the healthcheck
   formatting.py             — results message + inline keyboard
   messages.py               — all user-facing text in one place
   sources/base.py           — AudioSource abstraction (extension seam)
-  sources/ytdlp_source.py   — shared yt-dlp base class
+  sources/ytdlp_source.py   — shared yt-dlp base class (download, retries, cookies)
   sources/youtube.py        — YouTube Music (search via ytmusicapi)
   sources/soundcloud.py     — SoundCloud (scsearch)
   service.py                — MusicService: search + download routing
@@ -146,7 +200,9 @@ register it in `build_service()` (`app/application.py`).
 - [**ytmusicapi**](https://github.com/sigma67/ytmusicapi) `1.12.1` — YouTube Music search (keyless)
 - [**mutagen**](https://github.com/quodlibet/mutagen) `1.47.0` — ID3 tagging
 - [**Pillow**](https://github.com/python-pillow/Pillow) `11.0.0` — thumbnail generation
+- [**asyncpg**](https://github.com/MagicStack/asyncpg) `0.30.0` — PostgreSQL driver (persistent `file_id` cache)
 - [**ffmpeg**](https://ffmpeg.org/) — audio extraction/conversion (system package)
+- [**PostgreSQL**](https://www.postgresql.org/) `16` — persistent cache store (Docker service)
 - Metadata: [MusicBrainz](https://musicbrainz.org/) + [Cover Art Archive](https://coverartarchive.org/)
 
 ## 👤 Author

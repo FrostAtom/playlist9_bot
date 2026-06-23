@@ -4,3 +4,6 @@
 __pycache__/
 *.pyc
 README.md
+.env
+.env.example
+cookies/

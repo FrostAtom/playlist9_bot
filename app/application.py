@@ -6,19 +6,20 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
+from . import store
 from .config import Settings
 from .handlers import (
     Deps,
-    FileIdCache,
     SearchCache,
     TrackCache,
     build_router,
 )
 from .health import heartbeat
-from .limiter import DownloadLimiter
+from .limiter import DownloadLimiter, RateLimiter
 from .service import MusicService
 from .sources.soundcloud import SoundCloudSource
 from .sources.youtube import YouTubeMusicSource
+from .store import FileIdStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,11 @@ def build_service(settings: Settings) -> MusicService:
     # Register additional AudioSource implementations here to extend coverage.
     # The first source is the default for URLs no source explicitly claims.
     quality = settings.audio_quality
+    cookies = settings.cookies_file or None
     return MusicService(
         [
-            YouTubeMusicSource(audio_quality=quality),
-            SoundCloudSource(audio_quality=quality),
+            YouTubeMusicSource(audio_quality=quality, cookiefile=cookies),
+            SoundCloudSource(audio_quality=quality, cookiefile=cookies),
         ]
     )
 
@@ -38,14 +40,20 @@ def build_service(settings: Settings) -> MusicService:
 async def _amain(settings: Settings) -> None:
     bot = Bot(token=settings.token)
     dispatcher = Dispatcher()
+    pool = (
+        await store.create_pool(settings.database_url)
+        if settings.database_url
+        else None
+    )
     deps = Deps(
         settings=settings,
         service=build_service(settings),
         limiter=DownloadLimiter(
             per_user=settings.download_per_user, total=settings.download_total
         ),
+        rate=RateLimiter(settings.rate_per_minute, 60.0),
         cache=SearchCache(settings.search_cache_size),
-        files=FileIdCache(),
+        files=FileIdStore(pool),
         inline=TrackCache(),
     )
     dispatcher.include_router(build_router(deps))
@@ -81,6 +89,8 @@ async def _amain(settings: Settings) -> None:
         task = state.get("heartbeat")
         if task:
             task.cancel()
+        if pool is not None:
+            await pool.close()
         await bot.session.close()
         logger.info("Bye")
 

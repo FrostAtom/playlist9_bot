@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
-from typing import List
+from typing import List, Optional
 
 from ..models import Track
 from .ytdlp_source import YtDlpSource, compile_patterns
@@ -25,8 +25,10 @@ class YouTubeMusicSource(YtDlpSource):
         r"(https?://)?(www\.|music\.)?(youtube\.com|youtu\.be)/\S+",
     )
 
-    def __init__(self, audio_quality: str = "192") -> None:
-        super().__init__(audio_quality)
+    def __init__(
+        self, audio_quality: str = "320", cookiefile: Optional[str] = None
+    ) -> None:
+        super().__init__(audio_quality, cookiefile)
         self._yt = None
         self._lock = threading.Lock()
 
