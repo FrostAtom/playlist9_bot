@@ -7,15 +7,20 @@ services:
     container_name: playlist9_bot
     restart: unless-stopped
     # Configure the bot here. Fill TELEGRAM_BOT_TOKEN (required). Optionally set
-    # STORAGE_CHAT_ID to enable inline file delivery. The rest may stay empty —
-    # empty values fall back to defaults (50 / 30 / 10 / 192).
+    # STORAGE_CHAT_ID to enable inline file delivery. Everything else may stay
+    # empty — blank values fall back to the defaults shown in the comments.
     environment:
       TELEGRAM_BOT_TOKEN: ""
       STORAGE_CHAT_ID: ""
-      MAX_FILE_SIZE_MB: ""
-      MAX_RESULTS: ""
-      RESULTS_PER_PAGE: ""
-      AUDIO_QUALITY: ""
+      MAX_FILE_SIZE_MB: ""        # default 50
+      MAX_RESULTS: ""             # default 30
+      RESULTS_PER_PAGE: ""        # default 10
+      AUDIO_QUALITY: ""           # default 192
+      INLINE_RESULTS: ""          # default 20
+      SEARCH_CACHE_SIZE: ""       # default 20
+      RESULTS_TTL_SECONDS: ""     # default 300 (auto-delete search results)
+      DOWNLOAD_PER_USER: ""       # default 3
+      DOWNLOAD_TOTAL: ""          # default 8
     # Give the bot time to finish in-flight work on SIGTERM before SIGKILL.
     stop_grace_period: 30s
     healthcheck:

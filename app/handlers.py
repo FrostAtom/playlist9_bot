@@ -1,6 +1,7 @@
 """aiogram router: search, pagination, inline mode and download handlers."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
 from collections import OrderedDict
@@ -33,13 +34,6 @@ from .service import MusicService
 
 logger = logging.getLogger(__name__)
 
-# How many recent searches to keep per user (maps a results message to its
-# track list, so pagination/selection works without re-querying).
-SEARCH_CACHE_SIZE = 20
-INLINE_RESULTS = 20
-BOT_USERNAME = "atomsdungeon_bot"
-
-
 @dataclass
 class SearchState:
     """A search whose results are paginated and can be re-run on another source."""
@@ -52,7 +46,7 @@ class SearchState:
 class SearchCache:
     """Per-user store of recent searches, keyed by results message id."""
 
-    def __init__(self, per_user: int = SEARCH_CACHE_SIZE) -> None:
+    def __init__(self, per_user: int = 20) -> None:
         self._per_user = per_user
         self._data: Dict[int, "OrderedDict[str, SearchState]"] = {}
 
@@ -64,31 +58,6 @@ class SearchCache:
 
     def load(self, user_id: int, token: str) -> Optional[SearchState]:
         return self._data.get(user_id, {}).get(token)
-
-
-class History:
-    """Tracks bot/user message ids per chat so /clear can wipe everything
-    except the delivered audio tracks (which are never recorded)."""
-
-    def __init__(self, capacity: int = 300) -> None:
-        self._cap = capacity
-        self._data: Dict[int, List[int]] = {}
-
-    def add(self, chat_id: int, message_id: int) -> None:
-        ids = self._data.setdefault(chat_id, [])
-        ids.append(message_id)
-        # Bound memory for chats that never call /clear; oldest ids are also
-        # the least likely to still be deletable (Telegram's 48h limit).
-        if len(ids) > self._cap:
-            del ids[: len(ids) - self._cap]
-
-    def discard(self, chat_id: int, message_id: int) -> None:
-        ids = self._data.get(chat_id)
-        if ids and message_id in ids:
-            ids.remove(message_id)
-
-    def pop_all(self, chat_id: int) -> List[int]:
-        return self._data.pop(chat_id, [])
 
 
 class FileIdCache:
@@ -137,9 +106,11 @@ class Deps:
     service: MusicService
     limiter: DownloadLimiter
     cache: SearchCache
-    history: History
     files: FileIdCache
     inline: TrackCache
+    # Resolved from the running bot at startup (bot.get_me); used for the inline
+    # attribution links. Set by application.py before any update is processed.
+    bot_username: str = ""
 
 
 def _parse(data: str) -> Tuple[str, Optional[int]]:
@@ -163,40 +134,45 @@ async def _safe_edit(message: Message, text: str, **kwargs) -> None:
         pass
 
 
+async def _safe_delete(message: Message) -> None:
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass  # too old / already gone / not deletable
+
+
+def _delete_after(message: Message, delay: float) -> None:
+    """Schedule a fire-and-forget deletion of `message` after `delay` seconds."""
+
+    async def _later() -> None:
+        await asyncio.sleep(delay)
+        await _safe_delete(message)
+
+    asyncio.create_task(_later())
+
+
 def build_router(deps: Deps) -> Router:
     router = Router()
 
     @router.message(Command("start", "help"))
     async def start(message: Message) -> None:
-        deps.history.add(message.chat.id, message.message_id)
-        sent = await message.answer(messages.WELCOME, parse_mode=ParseMode.MARKDOWN)
-        deps.history.add(message.chat.id, sent.message_id)
-
-    @router.message(Command("clear"))
-    async def clear(message: Message) -> None:
-        chat_id = message.chat.id
-        ids = deps.history.pop_all(chat_id)
-        ids.append(message.message_id)
-        for message_id in ids:
-            try:
-                await message.bot.delete_message(chat_id, message_id)
-            except TelegramBadRequest:
-                pass  # too old / already gone / not deletable
+        await message.answer(messages.WELCOME, parse_mode=ParseMode.MARKDOWN)
 
     @router.message(F.text & ~F.text.startswith("/"))
     async def on_text(message: Message) -> None:
-        deps.history.add(message.chat.id, message.message_id)
         text = message.text.strip()
+        # The user's request is removed right away; bot replies stand on their own.
+        await _safe_delete(message)
 
         match = deps.service.resolve(text)
         if match:
             status = await message.answer(messages.DOWNLOADING)
-            deps.history.add(message.chat.id, status.message_id)
             await _deliver(deps, message.chat.id, message.from_user.id, match[1], status)
             return
 
         status = await message.answer(messages.searching(text))
-        deps.history.add(message.chat.id, status.message_id)
+        # The results message is ephemeral — it auto-deletes after a few minutes.
+        _delete_after(status, deps.settings.results_ttl)
         source = deps.service.default_source()
         try:
             tracks = await deps.service.search(text, deps.settings.max_results, source)
@@ -229,7 +205,6 @@ def build_router(deps: Deps) -> Router:
         # Keep the results message (and its keyboard) intact so the user can
         # pick more tracks; download progress goes into a fresh message.
         status = await callback.message.answer(messages.DOWNLOADING_CHOICE)
-        deps.history.add(callback.message.chat.id, status.message_id)
         await _deliver(
             deps, callback.message.chat.id, callback.from_user.id, track, status
         )
@@ -289,16 +264,17 @@ def build_router(deps: Deps) -> Router:
             await query.answer([], cache_time=5, is_personal=True)
             return
 
+        limit = deps.settings.inline_results
         source = deps.service.default_source()
         try:
-            tracks = await deps.service.search(text, INLINE_RESULTS, source)
+            tracks = await deps.service.search(text, limit, source)
         except Exception:  # noqa: BLE001
             logger.exception("Inline search failed")
             await query.answer([], cache_time=5)
             return
 
         results = []
-        for track in tracks[:INLINE_RESULTS]:
+        for track in tracks[:limit]:
             key = deps.files.key(track.source, track.id)
             title = _display_title(track)
             file_id = deps.files.get(key)
@@ -326,7 +302,7 @@ def build_router(deps: Deps) -> Router:
                             [
                                 InlineKeyboardButton(
                                     text="⏳ Downloading…",
-                                    url=f"https://t.me/{BOT_USERNAME}",
+                                    url=f"https://t.me/{deps.bot_username}",
                                 )
                             ]
                         ]
@@ -363,16 +339,6 @@ def build_router(deps: Deps) -> Router:
                     performer=track.uploader,
                 ),
                 inline_message_id=inline_message_id,
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text=f"🎵 via @{BOT_USERNAME}",
-                                url=f"https://t.me/{BOT_USERNAME}",
-                            )
-                        ]
-                    ]
-                ),
             )
         except TelegramBadRequest:
             logger.exception("Failed to embed inline audio")
@@ -493,8 +459,7 @@ async def _deliver(
                     deps.files.put(
                         deps.files.key(ref.source, ref.id), sent.audio.file_id
                     )
-                await status.delete()
-                deps.history.discard(chat_id, status.message_id)
+                await _safe_delete(status)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Send failed")
                 await _safe_edit(status, messages.send_failed(exc))

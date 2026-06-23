@@ -31,6 +31,15 @@ class Settings:
     # How many results to show per page (one track per button).
     results_per_page: int = 10
     audio_quality: str = "192"
+    # Results fetched for an inline query.
+    inline_results: int = 20
+    # How many recent searches to remember per user (for pagination/selection).
+    search_cache_size: int = 20
+    # Seconds a search-results message lives before the bot auto-deletes it.
+    results_ttl: int = 300
+    # Concurrent download limits: per single user and across all users.
+    download_per_user: int = 3
+    download_total: int = 8
     # Chat (e.g. a private channel where the bot is admin) used to upload freshly
     # downloaded tracks and obtain a file_id, so inline mode can deliver files.
     # When unset, inline mode can only re-send already-cached tracks.
@@ -47,5 +56,10 @@ class Settings:
             max_results=_env_int("MAX_RESULTS", 30),
             results_per_page=_env_int("RESULTS_PER_PAGE", 10),
             audio_quality=_env_str("AUDIO_QUALITY", "192"),
+            inline_results=_env_int("INLINE_RESULTS", 20),
+            search_cache_size=_env_int("SEARCH_CACHE_SIZE", 20),
+            results_ttl=_env_int("RESULTS_TTL_SECONDS", 300),
+            download_per_user=_env_int("DOWNLOAD_PER_USER", 3),
+            download_total=_env_int("DOWNLOAD_TOTAL", 8),
             storage_chat_id=_env_int("STORAGE_CHAT_ID", 0) or None,
         )

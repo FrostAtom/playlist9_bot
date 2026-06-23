@@ -10,7 +10,6 @@ from .config import Settings
 from .handlers import (
     Deps,
     FileIdCache,
-    History,
     SearchCache,
     TrackCache,
     build_router,
@@ -42,9 +41,10 @@ async def _amain(settings: Settings) -> None:
     deps = Deps(
         settings=settings,
         service=build_service(settings),
-        limiter=DownloadLimiter(per_user=3, total=8),
-        cache=SearchCache(),
-        history=History(),
+        limiter=DownloadLimiter(
+            per_user=settings.download_per_user, total=settings.download_total
+        ),
+        cache=SearchCache(settings.search_cache_size),
         files=FileIdCache(),
         inline=TrackCache(),
     )
@@ -56,6 +56,10 @@ async def _amain(settings: Settings) -> None:
 
     @dispatcher.startup()
     async def _on_startup() -> None:
+        # Resolve the bot's own @username so inline attribution links are always
+        # correct, regardless of how the bot is named/renamed.
+        me = await bot.get_me()
+        deps.bot_username = me.username or ""
         state["heartbeat"] = asyncio.create_task(heartbeat())
         if settings.storage_chat_id:
             try:
@@ -69,7 +73,7 @@ async def _amain(settings: Settings) -> None:
                     settings.storage_chat_id,
                     exc,
                 )
-        logger.info("Bot started")
+        logger.info("Bot started as @%s", deps.bot_username)
 
     @dispatcher.shutdown()
     async def _on_shutdown() -> None:

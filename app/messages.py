@@ -6,8 +6,7 @@ WELCOME = (
     "• Send a *track name* — I'll search YouTube Music 🎵 (tap ⇄ to switch the "
     "search to SoundCloud ☁️) and let you pick.\n"
     "• Or send a *link* — I'll download the audio as MP3.\n"
-    "• In any chat, type `@bot_name query` for inline search.\n"
-    "• /clear — remove everything from the chat except the tracks themselves.\n\n"
+    "• In any chat, type `@bot_name query` for inline search.\n\n"
     "Files arrive with cover art and clean tags."
 )
 
