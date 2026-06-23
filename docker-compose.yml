@@ -13,7 +13,7 @@ services:
       DATABASE_PASSWORD: "playlist9"
       DATABASE_NAME: "playlist9"
     volumes:
-      - ./cookies:/cookies:ro
+      - ./cookies:/cookies
     ports:
       - "8473:8473"
     depends_on:
