@@ -1,0 +1,16 @@
+services:
+  bot:
+    build: .
+    image: youtube-music-bot
+    container_name: youtube-music-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Give the bot time to finish in-flight work on SIGTERM before SIGKILL.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
