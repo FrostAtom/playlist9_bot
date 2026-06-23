@@ -42,17 +42,29 @@ open the chat, send a track name, and pick a result.
 
 ## 🚀 Quick start
 
+### Run the published image (no clone needed)
+
+Grab just the compose file, create a `.env`, and pull the prebuilt image from
+GHCR:
+
 ```sh
-cp .env.example .env        # then put your bot token in .env
-docker compose up -d --build
+curl -O https://raw.githubusercontent.com/FrostAtom/playlist9_bot/main/docker-compose.yml
+printf 'TELEGRAM_BOT_TOKEN=123456:ABC-DEF...\n' > .env   # see Configuration
+docker compose pull
+docker compose up -d
 docker compose logs -f
 ```
 
-Or with plain Docker:
+The image is published to `ghcr.io/frostatom/playlist9_bot:latest` by CI on
+every push to `main`.
+
+### Build from source (for development)
 
 ```sh
-docker build -t music-bot .
-docker run -d --name music-bot --env-file .env --restart unless-stopped music-bot
+git clone https://github.com/FrostAtom/playlist9_bot.git
+cd playlist9_bot
+cp .env.example .env        # then put your bot token in .env
+docker compose up -d --build
 ```
 
 ## ⚙️ Configuration

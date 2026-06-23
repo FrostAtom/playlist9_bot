@@ -1,8 +1,10 @@
 services:
   bot:
+    # Published image — `docker compose pull && docker compose up -d` works with
+    # just this file. From a clone, `docker compose up -d --build` builds locally.
+    image: ghcr.io/frostatom/playlist9_bot:latest
     build: .
-    image: youtube-music-bot
-    container_name: youtube-music-bot
+    container_name: playlist9_bot
     restart: unless-stopped
     env_file:
       - .env
