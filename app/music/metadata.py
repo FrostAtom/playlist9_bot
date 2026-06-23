@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -232,6 +233,15 @@ def fetch_image(url: Optional[str]) -> Optional[bytes]:
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(request, timeout=15) as response:
             return response.read()
+    except urllib.error.HTTPError as exc:
+        # A missing cover (e.g. Cover Art Archive has no art for this release →
+        # 404) is an expected miss, not an error: the track is still delivered,
+        # just without embedded art. Only surface unexpected HTTP failures.
+        if exc.code in (403, 404, 410):
+            logger.debug("No cover art at %s (HTTP %s)", url, exc.code)
+        else:
+            logger.warning("Cover art fetch failed for %s (HTTP %s)", url, exc.code)
+        return None
     except Exception:  # noqa: BLE001
         logger.warning("Failed to fetch cover art from %s", url, exc_info=True)
         return None
