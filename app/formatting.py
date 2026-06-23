@@ -55,6 +55,11 @@ def track_label(track: Track) -> str:
     return label
 
 
+def display_title(track: Track) -> str:
+    """Full "Artist — Title" for messages/captions (no truncation, no badge)."""
+    return f"{track.uploader} — {track.title}" if track.uploader else track.title
+
+
 def results_page(
     tracks: List[Track],
     page: int,

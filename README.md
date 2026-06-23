@@ -185,7 +185,11 @@ app/
   sources/youtube.py        — YouTube Music (search via ytmusicapi)
   sources/soundcloud.py     — SoundCloud (scsearch)
   service.py                — MusicService: search + download routing
-  handlers.py               — aiogram router (search, pagination, inline, download)
+  caches.py                 — in-memory state (recent searches, inline tracks)
+  deps.py                   — Deps: the dependency bundle handlers close over
+  delivery.py               — download → validate → send pipeline
+  tg_utils.py               — error-tolerant aiogram call wrappers
+  handlers.py               — aiogram router (thin: parse updates, dispatch)
   application.py            — Dispatcher/Bot wiring, polling, graceful shutdown
 healthcheck.py              — Docker HEALTHCHECK script (checks the heartbeat)
 ```

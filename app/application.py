@@ -7,13 +7,10 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from . import store
+from .caches import SearchCache, TrackCache
 from .config import Settings
-from .handlers import (
-    Deps,
-    SearchCache,
-    TrackCache,
-    build_router,
-)
+from .deps import Deps
+from .handlers import build_router
 from .health import heartbeat
 from .limiter import DownloadLimiter, RateLimiter
 from .service import MusicService

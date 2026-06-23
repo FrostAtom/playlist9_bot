@@ -65,7 +65,8 @@ Layered package `app/`, wired in `app/application.py` (`build_service` + `_amain
 - **Persistence** (`store.py`): `FileIdStore` caches `source:id → file_id` in
   PostgreSQL (asyncpg) behind an in-memory LRU. Optional — with no `DATABASE_URL`
   (or the DB unreachable, retried at startup) it degrades to memory-only.
-  `get`/`get_many`/`put` are async, so their call sites in `handlers.py` await.
+  `get`/`get_many`/`put` are async, so their callers (`delivery.py`,
+  `handlers.py`) await.
 - **Metadata pipeline** is the subtle part. `sources` call into `metadata.py`:
   `finalize_with_metadata` (search picks — clean tags known) or
   `finalize_download` (pasted URLs — clean the messy yt-dlp title). Both embed
@@ -73,11 +74,14 @@ Layered package `app/`, wired in `app/application.py` (`build_service` + `_amain
   for Telegram's audio preview. `metadata_provider.py` enriches missing
   album/cover via MusicBrainz + Cover Art Archive (chosen for free, keyless,
   decent Russian coverage; only called when album or cover is absent).
-- **Handlers** (`handlers.py`) are an aiogram `Router` built by `build_router`,
-  closing over a `Deps` bundle (settings, service, `DownloadLimiter`,
-  `RateLimiter`, two in-memory caches — `SearchCache` + `TrackCache` — and a
-  Postgres-backed `FileIdStore`). All bot text lives in `messages.py` (English);
-  keyboards in `formatting.py`.
+- **Handlers** (`handlers.py`) are a deliberately thin aiogram `Router` built by
+  `build_router` — they parse updates and decide *what* to do. The *how* is split
+  out: the download→validate→send pipeline in `delivery.py`, in-memory state
+  (`SearchCache`/`TrackCache`) in `caches.py`, the `Deps` bundle (settings,
+  service, `DownloadLimiter`, `RateLimiter`, caches, Postgres-backed
+  `FileIdStore`) in `deps.py`, and error-tolerant aiogram wrappers in
+  `tg_utils.py`. All bot text lives in `messages.py` (English); keyboards in
+  `formatting.py`.
 
 ## Cross-cutting mechanics (read before touching handlers)
 
@@ -91,7 +95,7 @@ Layered package `app/`, wired in `app/application.py` (`build_service` + `_amain
   notice. aiogram processes updates as tasks, so downloads never block
   pagination. A separate `RateLimiter` (sliding window, default 10/user/min)
   gates every download entry point — `on_pick`, the URL/Spotify branch of
-  `on_text`, and inline `_ensure_file_id`.
+  `on_text`, and inline `delivery.ensure_file_id`.
 - **Ephemeral chat.** There is no `/clear`. Instead `on_text` deletes the user's
   query message immediately (`_safe_delete`), and the search-results message
   auto-deletes after `RESULTS_TTL` (5 min) via `_delete_after` (a fire-and-forget
