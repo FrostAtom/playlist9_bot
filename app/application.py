@@ -37,10 +37,10 @@ def build_service(settings: Settings) -> MusicService:
 async def _amain(settings: Settings) -> None:
     bot = Bot(token=settings.token)
     dispatcher = Dispatcher()
-    pool = (
-        await store.create_pool(settings.database_url)
-        if settings.database_url
-        else None
+    # The file_id store is mandatory; create_pool raises SystemExit (→ container
+    # restart) if the database can't be reached, so we never run without it.
+    pool = await store.create_pool(
+        settings.database_url, password=settings.database_password
     )
     deps = Deps(
         settings=settings,

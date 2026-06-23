@@ -5,9 +5,9 @@ bot re-send a previously delivered track instantly — no second download — an
 makes inline mode answer with playable audio far more often.
 
 A small in-memory LRU sits in front of the database so hot lookups (every inline
-keystroke probes the cache for each result) don't hit Postgres. The whole thing
-degrades gracefully: with no ``DATABASE_URL`` configured, or if the database is
-unreachable at startup, it runs memory-only — exactly like the old cache did.
+keystroke probes the cache for each result) don't hit Postgres. The database is
+required: if it is unreachable at startup the bot refuses to start (the container
+then restarts and retries) rather than silently losing persistence.
 """
 from __future__ import annotations
 
@@ -108,23 +108,32 @@ class FileIdStore:
             self._mem.popitem(last=False)
 
 
-async def create_pool(dsn: str, *, retries: int = 10, delay: float = 2.0):
+async def create_pool(
+    dsn: str,
+    *,
+    password: Optional[str] = None,
+    retries: int = 10,
+    delay: float = 2.0,
+):
     """Create an asyncpg pool and ensure the schema, retrying while the database
     starts up (compose brings it up alongside the bot).
 
-    Returns the pool, or ``None`` if the database never became reachable — the
-    caller then runs memory-only instead of crashing the bot.
+    ``password`` is applied separately from the DSN (so special characters can't
+    corrupt the URL); when falsy, the DSN is used as-is. The database is
+    mandatory: if it never becomes reachable this raises ``SystemExit`` so the
+    container exits and is restarted by Docker — we never run without persistence.
     """
     try:
         import asyncpg
     except ImportError:
-        logger.warning("asyncpg is not installed; running memory-only")
-        return None
+        raise SystemExit("asyncpg is not installed but DATABASE_URL is set")
 
     last_error: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
-            pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
+            pool = await asyncpg.create_pool(
+                dsn, password=password or None, min_size=1, max_size=5
+            )
             async with pool.acquire() as conn:
                 await conn.execute(_SCHEMA)
             logger.info("Connected to PostgreSQL file_id store")
@@ -133,8 +142,4 @@ async def create_pool(dsn: str, *, retries: int = 10, delay: float = 2.0):
             last_error = exc
             logger.info("Waiting for PostgreSQL (%d/%d): %s", attempt, retries, exc)
             await asyncio.sleep(delay)
-    logger.warning(
-        "PostgreSQL unreachable, running memory-only (file_ids won't persist): %s",
-        last_error,
-    )
-    return None
+    raise SystemExit(f"PostgreSQL unreachable after {retries} attempts: {last_error}")

@@ -54,9 +54,14 @@ class Settings:
     # downloaded tracks and obtain a file_id, so inline mode can deliver files.
     # When unset, inline mode can only re-send already-cached tracks.
     storage_chat_id: Optional[int] = None
-    # PostgreSQL DSN for the persistent file_id cache. When unset, the cache is
-    # in-memory only (lost on restart).
+    # PostgreSQL DSN for the persistent file_id cache. Required in production
+    # (the bot refuses to start without a reachable database). Left blank only
+    # for offline unit tests that build a MusicService directly.
     database_url: str = ""
+    # Database password, supplied separately from the DSN so special characters
+    # can't corrupt the URL; asyncpg applies it verbatim. Empty means the
+    # password (if any) is taken from the DSN as-is.
+    database_password: str = ""
     # Path to a Netscape-format cookies.txt passed to yt-dlp (for age-restricted
     # or region-locked content). When unset or missing, no cookies are used.
     cookies_file: str = ""
@@ -66,6 +71,9 @@ class Settings:
         token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
         if not token:
             raise SystemExit("TELEGRAM_BOT_TOKEN environment variable is not set")
+        database_url = _env_str("DATABASE_URL", "")
+        if not database_url:
+            raise SystemExit("DATABASE_URL environment variable is not set")
         return cls(
             token=token,
             max_file_size=_env_int("MAX_FILE_SIZE_MB", 50) * 1024 * 1024,
@@ -79,6 +87,7 @@ class Settings:
             download_total=_env_int("DOWNLOAD_TOTAL", 8),
             rate_per_minute=_env_int("RATE_PER_MINUTE", 10),
             storage_chat_id=_env_int("STORAGE_CHAT_ID", 0) or None,
-            database_url=_env_str("DATABASE_URL", ""),
+            database_url=database_url,
+            database_password=_env_str("DATABASE_PASSWORD", ""),
             cookies_file=_env_str("COOKIES_FILE", ""),
         )

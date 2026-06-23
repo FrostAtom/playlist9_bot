@@ -12,8 +12,12 @@ services:
     environment:
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?copy .env.example to .env and set TELEGRAM_BOT_TOKEN}"
       STORAGE_CHAT_ID: ${STORAGE_CHAT_ID:-}
-      # Persistent file_id cache — points at the bundled `db` service below.
-      DATABASE_URL: "postgresql://playlist9:${POSTGRES_PASSWORD:-playlist9}@db:5432/playlist9"
+      # Persistent file_id cache — required, points at the bundled `db` service.
+      # The password is passed separately (DATABASE_PASSWORD) instead of being
+      # interpolated into the URL, so special characters (@ : / # ? %) in the
+      # password can't corrupt the DSN — asyncpg applies it verbatim.
+      DATABASE_URL: "postgresql://playlist9@db:5432/playlist9"
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-playlist9}
       COOKIES_FILE: ${COOKIES_FILE:-}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-}
       MAX_RESULTS: ${MAX_RESULTS:-}
@@ -32,6 +36,15 @@ services:
         condition: service_healthy
     # Give the bot time to finish in-flight work on SIGTERM before SIGKILL.
     stop_grace_period: 30s
+    # Cap memory so parallel yt-dlp/ffmpeg jobs can't OOM the host (e.g. a Pi);
+    # the container is killed and restarted (unless-stopped) instead of taking
+    # the whole machine down. Bound logs so json-file can't fill the disk.
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "python", "healthcheck.py"]
       interval: 30s
@@ -51,6 +64,12 @@ services:
       POSTGRES_DB: playlist9
     volumes:
       - pgdata:/var/lib/postgresql/data
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U playlist9 -d playlist9"]
       interval: 10s
