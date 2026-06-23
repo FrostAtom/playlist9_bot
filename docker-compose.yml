@@ -6,8 +6,15 @@ services:
     build: .
     container_name: playlist9_bot
     restart: unless-stopped
-    env_file:
-      - .env
+    # Values are taken from a sibling .env file (or the shell). Optional ones
+    # fall back to their defaults so an empty value never reaches the app.
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      STORAGE_CHAT_ID: ${STORAGE_CHAT_ID:-}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
+      MAX_RESULTS: ${MAX_RESULTS:-30}
+      RESULTS_PER_PAGE: ${RESULTS_PER_PAGE:-10}
+      AUDIO_QUALITY: ${AUDIO_QUALITY:-192}
     # Give the bot time to finish in-flight work on SIGTERM before SIGKILL.
     stop_grace_period: 30s
     healthcheck:
