@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>playlist9 · music downloader</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:        #07080f;
+    --bg-2:      #0a0c16;
+    --panel:     #0e1120;
+    --panel-2:   #11152a;
+    --line:      #1e2440;
+    --line-soft: #161a30;
+    --txt:       #e9ecfb;
+    --muted:     #8089ab;
+    --faint:     #565f82;
+    /* restrained neon: saturated but not blinding */
+    --cyan:      #2de2e6;
+    --magenta:   #ff4fd8;
+    --violet:    #9d6cff;
+    --green:     #43e899;
+    --amber:     #ffb454;
+    --red:       #ff5d6c;
+    --glow-cyan:    rgba(45,226,230,.55);
+    --glow-magenta: rgba(255,79,216,.45);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 15px/1.6 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--txt);
+    background:
+      radial-gradient(1200px 700px at 82% -12%, rgba(255,79,216,.12), transparent 58%),
+      radial-gradient(1000px 700px at -6% 4%, rgba(45,226,230,.12), transparent 55%),
+      radial-gradient(900px 900px at 50% 120%, rgba(157,108,255,.10), transparent 60%),
+      var(--bg);
+    /* Pin the decorative gradients to the viewport so they stay continuous on
+       long, scrollable result pages (otherwise they anchor to the tall body
+       box and leave flat gaps). */
+    background-attachment: fixed;
+    background-color: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  /* faint cyber grid behind everything */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(45,226,230,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(157,108,255,.045) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 78%);
+  }
+  a { color: inherit; }
+  ::selection { background: rgba(45,226,230,.35); }
+
+  .page { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 30px 22px 80px; }
+
+  /* ───────── top bar ───────── */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 42px; height: 42px; border-radius: 13px; flex: none; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    box-shadow: 0 0 22px -2px var(--glow-cyan), 0 0 30px -6px var(--glow-magenta);
+  }
+  .logo svg { width: 23px; height: 23px; }
+  .brand .name { font-weight: 800; font-size: 17px; letter-spacing: .3px; }
+  .brand .name b { color: var(--cyan); }
+  .brand .role { color: var(--muted); font-size: 12px; margin-top: -1px; letter-spacing: .04em; }
+  .ghub { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: rgba(14,17,32,.7); color: var(--muted);
+    font-size: 12.5px; text-decoration: none; transition: border-color .18s, color .18s, box-shadow .18s; }
+  .ghub:hover { color: var(--txt); border-color: var(--cyan); box-shadow: 0 0 16px -6px var(--glow-cyan); }
+  .links { display: flex; align-items: center; gap: 9px; }
+  .ghub.tg { color: #cdeafd; border-color: rgba(45,226,230,.35);
+    background: linear-gradient(135deg, rgba(45,226,230,.16), rgba(38,165,228,.12)); }
+  .ghub.tg:hover { color: #fff; border-color: var(--cyan); box-shadow: 0 0 18px -5px var(--glow-cyan); }
+
+  /* ───────── hero ───────── */
+  .hero { text-align: center; padding: 46px 0 30px; }
+  .kicker { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--cyan); border: 1px solid var(--line);
+    background: rgba(45,226,230,.06); padding: 6px 14px; border-radius: 999px; }
+  .kicker .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan);
+    box-shadow: 0 0 10px 1px var(--cyan); animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  h1 { font-size: clamp(30px, 6vw, 50px); line-height: 1.05; margin: 20px 0 12px; font-weight: 850;
+    letter-spacing: -1px; }
+  h1 .neon {
+    background: linear-gradient(92deg, var(--cyan), var(--magenta) 60%, var(--violet));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 28px var(--glow-magenta);
+  }
+  .sub { color: var(--muted); font-size: 15.5px; max-width: 560px; margin: 0 auto; }
+
+  /* ───────── search box ───────── */
+  .search { margin: 30px auto 0; max-width: 680px; }
+  .sourcetabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px;
+    border: 1px solid var(--line-soft); background: rgba(10,12,22,.7); margin-bottom: 14px; }
+  .sourcetabs button { appearance: none; border: 0; cursor: pointer; padding: 7px 16px; border-radius: 9px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
+    transition: color .15s, background .15s, box-shadow .15s; }
+  .sourcetabs button.on { color: #04121a;
+    background: linear-gradient(135deg, var(--cyan), #66f0f3);
+    box-shadow: 0 0 18px -5px var(--glow-cyan); }
+  .sourcetabs button.on.sc { color: #1a0a17;
+    background: linear-gradient(135deg, var(--magenta), #ff86e6); box-shadow: 0 0 18px -5px var(--glow-magenta); }
+
+  .field {
+    position: relative; display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--line); border-radius: 16px; padding: 6px 6px 6px 16px;
+    background: linear-gradient(180deg, rgba(17,21,42,.9), rgba(10,12,22,.9));
+    box-shadow: 0 0 0 1px rgba(45,226,230,0) , 0 20px 50px -30px #000;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .field:focus-within { border-color: var(--cyan);
+    box-shadow: 0 0 0 3px rgba(45,226,230,.12), 0 0 34px -10px var(--glow-cyan); }
+  .field svg.lens { width: 19px; height: 19px; color: var(--faint); flex: none; }
+  .field input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--txt);
+    font: inherit; font-size: 16px; padding: 12px 2px; min-width: 0; }
+  .field input::placeholder { color: var(--faint); }
+  .go { appearance: none; border: 0; cursor: pointer; flex: none;
+    padding: 12px 22px; border-radius: 12px; font: inherit; font-weight: 750; font-size: 14.5px; color: #04121a;
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    box-shadow: 0 0 24px -6px var(--glow-magenta); transition: transform .12s, filter .18s; }
+  .go:hover { filter: brightness(1.08); }
+  .go:active { transform: scale(.97); }
+  .go:disabled { opacity: .55; cursor: default; }
+
+  .hint { margin: 13px 2px 0; color: var(--faint); font-size: 12.5px; text-align: center; }
+  .hint b { color: var(--muted); font-weight: 600; }
+
+  /* ───────── status line ───────── */
+  .note { display: none; margin: 26px auto 0; max-width: 680px; padding: 13px 16px; border-radius: 13px;
+    font-size: 13.5px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+  .note.show { display: block; }
+  .note.err { border-color: rgba(255,93,108,.45); color: #ffb4bb; background: rgba(255,93,108,.08); }
+
+  /* ───────── results ───────── */
+  .meta-row { display: none; max-width: 680px; margin: 28px auto 12px; align-items: baseline;
+    justify-content: space-between; gap: 12px; }
+  .meta-row.show { display: flex; }
+  .meta-row .h { font-size: 12px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 700; }
+  .meta-row .c { color: var(--faint); font-size: 12.5px; }
+
+  .results { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  .row {
+    display: flex; align-items: center; gap: 14px; padding: 11px 13px; border-radius: 14px;
+    border: 1px solid var(--line-soft); background: linear-gradient(180deg, var(--panel), var(--bg-2));
+    transition: border-color .18s, transform .18s, box-shadow .18s;
+  }
+  .row:hover { border-color: var(--line); transform: translateY(-1px);
+    box-shadow: 0 14px 30px -22px var(--glow-cyan); }
+  .cover { width: 52px; height: 52px; border-radius: 10px; flex: none; object-fit: cover;
+    background: var(--panel-2); border: 1px solid var(--line-soft); }
+  .cover.ph { display: grid; place-items: center; color: var(--faint); }
+  .cover.ph svg { width: 22px; height: 22px; }
+  .info { flex: 1; min-width: 0; }
+  .info .t { font-weight: 650; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .info .a { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .info .a .badge { color: var(--cyan); }
+  .dur { color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; flex: none; }
+  .dl {
+    appearance: none; border: 1px solid var(--line); cursor: pointer; flex: none;
+    width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+    background: rgba(45,226,230,.08); color: var(--cyan);
+    transition: background .15s, box-shadow .15s, color .15s, transform .12s;
+  }
+  .dl:hover { background: rgba(45,226,230,.16); box-shadow: 0 0 18px -5px var(--glow-cyan); }
+  .dl:active { transform: scale(.92); }
+  .dl svg { width: 18px; height: 18px; }
+  .dl.busy { color: var(--amber); border-color: rgba(255,180,84,.4); background: rgba(255,180,84,.08); cursor: default; }
+  .dl.ok { color: var(--green); border-color: rgba(67,232,153,.4); background: rgba(67,232,153,.1); }
+  .dl.fail { color: var(--red); border-color: rgba(255,93,108,.4); background: rgba(255,93,108,.1); }
+  .spin { animation: spin .8s linear infinite; transform-origin: center; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* skeletons */
+  .skel { height: 76px; border-radius: 14px; border: 1px solid var(--line-soft);
+    background: linear-gradient(100deg, var(--panel) 30%, var(--panel-2) 50%, var(--panel) 70%);
+    background-size: 220% 100%; animation: sweep 1.3s ease-in-out infinite; }
+  @keyframes sweep { to { background-position: -120% 0; } }
+
+  /* ───────── feature strip ───────── */
+  .feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 680px;
+    margin: 56px auto 0; }
+  .feat { border: 1px solid var(--line-soft); border-radius: 14px; padding: 16px; background: rgba(10,12,22,.55); }
+  .feat .ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+    background: rgba(45,226,230,.1); color: var(--cyan); margin-bottom: 10px; }
+  .feat:nth-child(2) .ic { background: rgba(255,79,216,.1); color: var(--magenta); }
+  .feat:nth-child(3) .ic { background: rgba(157,108,255,.12); color: var(--violet); }
+  .feat .ic svg { width: 17px; height: 17px; }
+  .feat h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
+  .feat p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+  footer { text-align: center; color: var(--faint); font-size: 12px; margin-top: 56px; }
+  footer a:hover { color: var(--cyan); }
+
+  @media (max-width: 560px) {
+    .feats { grid-template-columns: 1fr; }
+    .go { padding: 12px 16px; }
+    .field input { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#04121a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="name">playlist<b>9</b></div>
+        <div class="role">music downloader</div>
+      </div>
+    </div>
+    <div class="links">
+      <a class="ghub tg" href="https://t.me/atomsdungeon_bot" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M21.94 4.5 18.6 20.2c-.25 1.1-.9 1.38-1.83.86l-5.05-3.72-2.44 2.35c-.27.27-.5.5-1.01.5l.36-5.13L17.97 6.4c.4-.36-.09-.56-.62-.2L6.8 13.06l-4.99-1.56c-1.08-.34-1.1-1.08.23-1.6L20.55 2.9c.9-.33 1.69.22 1.39 1.6Z"/></svg>
+        Telegram
+      </a>
+      <a class="ghub" href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.85 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.21-3.37-1.21-.46-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.56 2.36 1.11 2.94.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.36 9.36 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <span class="kicker"><span class="pulse"></span> 320 kbps · tagged · instant</span>
+    <h1>Download any track,<br><span class="neon">straight from the grid.</span></h1>
+    <p class="sub">Search YouTube&nbsp;Music &amp; SoundCloud, or paste a Spotify, Apple&nbsp;Music,
+      YouTube or SoundCloud link. Get a clean, tagged MP3 — same engine that powers the Telegram bot.</p>
+
+    <div class="search">
+      <div class="sourcetabs" id="tabs"></div>
+      <form class="field" id="form" autocomplete="off">
+        <svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="q" name="q" placeholder="Song, artist, or a link…" autofocus>
+        <button class="go" id="go" type="submit">Search</button>
+      </form>
+      <p class="hint">Try <b>“daft punk — instant crush”</b> or paste a <b>Spotify / playlist</b> link.</p>
+    </div>
+  </section>
+
+  <div class="note" id="note"></div>
+
+  <div class="meta-row" id="metaRow">
+    <span class="h" id="metaH">Results</span>
+    <span class="c" id="metaC"></span>
+  </div>
+  <div class="results" id="results"></div>
+
+  <section class="feats">
+    <div class="feat">
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></div>
+      <h3>Highest quality</h3>
+      <p>Best source audio transcoded to 320 kbps MP3 with embedded cover art &amp; ID3 tags.</p>
+    </div>
+    <div class="feat">
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg></div>
+      <h3>Any link</h3>
+      <p>Spotify, Apple&nbsp;Music, YouTube and SoundCloud — single tracks, playlists and albums.</p>
+    </div>
+    <div class="feat">
+      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-9 13h7l-1 7 9-13h-7l1-7z"/></svg></div>
+      <h3>No accounts</h3>
+      <p>No sign-up, no app. Search, click download, done — right here in your browser.</p>
+    </div>
+  </section>
+
+  <footer>
+    Also on Telegram as <a href="https://t.me/atomsdungeon_bot" target="_blank" rel="noopener">@atomsdungeon_bot</a>
+    &nbsp;·&nbsp; <a href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener">source on GitHub</a>
+  </footer>
+</div>
+
+<script>
+const SOURCES = __SOURCES__;          // [{id,name}]
+const $ = id => document.getElementById(id);
+const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+let source = SOURCES.length ? SOURCES[0].id : "";
+
+const BADGE = { youtube: "YT Music", soundcloud: "SoundCloud" };
+const ICON = {
+  music: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+  down:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+  spin:  '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.55" opacity=".9"/></svg>',
+  ok:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m20 6-11 11-5-5"/></svg>',
+  fail:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+};
+
+function fmtDur(s) {
+  if (s == null) return "";
+  s = Math.round(s);
+  const m = Math.floor(s / 60), sec = s % 60;
+  return m + ":" + String(sec).padStart(2, "0");
+}
+
+// ── source tabs ──
+function renderTabs() {
+  $("tabs").innerHTML = SOURCES.map(s =>
+    `<button data-src="${esc(s.id)}" class="${s.id === source ? "on" + (s.id === "soundcloud" ? " sc" : "") : ""}">${esc(s.name)}</button>`
+  ).join("");
+  [...$("tabs").querySelectorAll("button")].forEach(b => b.onclick = () => {
+    source = b.dataset.src; renderTabs();
+    if ($("q").value.trim()) doSearch();
+  });
+}
+
+function setNote(msg, isErr) {
+  const n = $("note");
+  if (!msg) { n.className = "note"; n.textContent = ""; return; }
+  n.className = "note show" + (isErr ? " err" : "");
+  n.textContent = msg;
+}
+
+function skeletons(n) {
+  $("results").innerHTML = Array.from({ length: n }, () => `<div class="skel"></div>`).join("");
+  $("metaRow").classList.remove("show");
+}
+
+let reqId = 0;
+async function doSearch() {
+  const q = $("q").value.trim();
+  if (!q) return;
+  const mine = ++reqId;
+  setNote("");
+  $("go").disabled = true;
+  skeletons(5);
+  try {
+    const r = await fetch(`api/search?q=${encodeURIComponent(q)}&source=${encodeURIComponent(source)}`, { cache: "no-store" });
+    const d = await r.json();
+    if (mine !== reqId) return;             // a newer search superseded this one
+    if (!r.ok) { renderResults([]); setNote(d.error || "Search failed.", true); return; }
+    renderResults(d.tracks || [], d);
+  } catch (e) {
+    if (mine !== reqId) return;
+    renderResults([]); setNote("Network error — is the server reachable?", true);
+  } finally {
+    if (mine === reqId) $("go").disabled = false;
+  }
+}
+
+function renderResults(tracks, d) {
+  d = d || {};
+  if (!tracks.length) {
+    $("results").innerHTML = "";
+    $("metaRow").classList.remove("show");
+    if (!$("note").classList.contains("show")) setNote("Nothing found. Try a different query or link.");
+    return;
+  }
+  const isPl = d.kind === "playlist";
+  $("metaH").textContent = isPl ? (d.title || "Playlist") : "Results";
+  $("metaC").textContent = `${tracks.length} track${tracks.length === 1 ? "" : "s"}`
+    + (d.title && !isPl ? ` · via ${esc(d.title)}` : "");
+  $("metaRow").classList.add("show");
+
+  $("results").innerHTML = tracks.map((t, i) => {
+    const cover = t.cover_url
+      ? `<img class="cover" src="${esc(t.cover_url)}" alt="" loading="lazy" data-ph>`
+      : `<div class="cover ph">${ICON.music}</div>`;
+    const badge = BADGE[t.source] ? `<span class="badge">${esc(BADGE[t.source])}</span> · ` : "";
+    const artist = t.uploader ? esc(t.uploader) : "Unknown artist";
+    const dur = t.duration ? `<span class="dur">${fmtDur(t.duration)}</span>` : "";
+    return `<div class="row" data-i="${i}">
+      ${cover}
+      <div class="info">
+        <div class="t">${esc(t.title)}</div>
+        <div class="a">${badge}${artist}</div>
+      </div>
+      ${dur}
+      <button class="dl" title="Download MP3" data-i="${i}">${ICON.down}</button>
+    </div>`;
+  }).join("");
+
+  // Swap a broken/blocked cover for the music placeholder (wired in JS so the
+  // inline SVG's quotes can't break out of an HTML attribute).
+  [...$("results").querySelectorAll("img.cover[data-ph]")].forEach(img => {
+    img.onerror = () => {
+      const ph = document.createElement("div");
+      ph.className = "cover ph";
+      ph.innerHTML = ICON.music;
+      img.replaceWith(ph);
+    };
+  });
+
+  [...$("results").querySelectorAll(".dl")].forEach(btn => {
+    btn.onclick = () => download(tracks[+btn.dataset.i], btn);
+  });
+}
+
+async function download(track, btn) {
+  if (btn.classList.contains("busy")) return;
+  const reset = btn.className;
+  btn.className = "dl busy"; btn.innerHTML = ICON.spin; btn.disabled = true;
+  try {
+    const r = await fetch("api/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(track),
+    });
+    if (!r.ok) {
+      let msg = "Download failed.";
+      try { msg = (await r.json()).error || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    const blob = await r.blob();
+    const name = filenameFrom(r.headers.get("Content-Disposition"))
+      || `${(track.uploader ? track.uploader + " - " : "")}${track.title || "track"}.mp3`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    btn.className = "dl ok"; btn.innerHTML = ICON.ok;
+    setTimeout(() => { btn.className = "dl"; btn.innerHTML = ICON.down; btn.disabled = false; }, 2200);
+  } catch (e) {
+    setNote(e.message || "Download failed.", true);
+    btn.className = "dl fail"; btn.innerHTML = ICON.fail;
+    setTimeout(() => { btn.className = "dl"; btn.innerHTML = ICON.down; btn.disabled = false; }, 2600);
+  }
+}
+
+function filenameFrom(disposition) {
+  if (!disposition) return null;
+  let m = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (m) { try { return decodeURIComponent(m[1]); } catch (e) {} }
+  m = /filename="([^"]+)"/i.exec(disposition);
+  return m ? m[1] : null;
+}
+
+$("form").addEventListener("submit", e => { e.preventDefault(); doSearch(); });
+renderTabs();
+</script>
+</body>
+</html>

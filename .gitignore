@@ -1,6 +1,11 @@
 .claude
 .env
 
+# Python bytecode / test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # yt-dlp cookies (treat like a password) — keep the folder, ignore its contents
 cookies/*
 !cookies/.gitkeep

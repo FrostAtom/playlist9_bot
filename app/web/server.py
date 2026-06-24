@@ -18,7 +18,11 @@ from typing import Optional
 
 from aiohttp import web
 
+from . import api
+from ..config import Settings
+from ..infra.limiter import DownloadLimiter, RateLimiter
 from ..infra.metrics import Metrics
+from ..music.service import MusicService
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +31,10 @@ logger = logging.getLogger(__name__)
 # this many days the status page nudges to bump the pin in requirements.txt.
 _YTDLP_STALE_DAYS = 30
 
-# The page markup lives next to this module as a plain file (no templating
-# engine) — its only dynamic part is the JSON-encoded counter labels below.
+# The page markup lives next to this module as plain files (no templating
+# engine) — their only dynamic parts are the JSON values spliced in below.
 _TEMPLATE = Path(__file__).parent / "templates" / "status.html"
+_LANDING = Path(__file__).parent / "templates" / "landing.html"
 
 # Friendly labels + display order for the counters incremented around the app.
 # Counters not listed here still show up (raw key) so new metrics aren't lost.
@@ -51,8 +56,23 @@ _COUNTER_GROUPS = {
     "Downloads": ["downloads_ok", "downloads_failed", "sends_failed", "rate_limited"],
 }
 
-# Rendered once on first request, then served from memory (the file is static).
+# Rendered once on first request, then served from memory (the files are static).
 _page_cache: str | None = None
+_landing_cache: str | None = None
+
+
+def _render_landing(service: MusicService) -> str:
+    """The music-download page, with the live source list spliced into its JS."""
+    global _landing_cache
+    if _landing_cache is None:
+        sources = [
+            {"id": name, "name": api.source_name(name)}
+            for name in service.searchable_sources()
+        ]
+        _landing_cache = _LANDING.read_text(encoding="utf-8").replace(
+            "__SOURCES__", json.dumps(sources)
+        )
+    return _landing_cache
 
 
 def _render_page() -> str:
@@ -126,4 +146,44 @@ async def start_web_server(metrics: Metrics, host: str, port: int) -> web.AppRun
     site = web.TCPSite(runner, host, port)
     await site.start()
     logger.info("Status page listening on http://%s:%d", host, port)
+    return runner
+
+
+async def start_download_server(
+    service: MusicService,
+    settings: Settings,
+    limiter: DownloadLimiter,
+    rate: RateLimiter,
+    host: str,
+    port: int,
+) -> web.AppRunner:
+    """Start the public music-download page (search + MP3 download) and return its
+    runner (caller cleans it up). Bound to ``host``; like the status page it has
+    no auth, so put it behind a reverse proxy if you expose it.
+
+    Failures to bind are raised to the caller, which logs and swallows them — the
+    web page is a convenience, never a reason to take the bot down.
+    """
+    app = web.Application()
+    app["service"] = service
+    app["settings"] = settings
+    app["limiter"] = limiter
+    app["rate"] = rate
+
+    async def _index(_request: web.Request) -> web.Response:
+        return web.Response(text=_render_landing(service), content_type="text/html")
+
+    app.add_routes(
+        [
+            web.get("/", _index),
+            web.get("/api/search", api.search),
+            web.post("/api/download", api.download),
+            web.get("/healthz", _healthz),
+        ]
+    )
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    site = web.TCPSite(runner, host, port)
+    await site.start()
+    logger.info("Download page listening on http://%s:%d", host, port)
     return runner

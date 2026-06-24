@@ -26,8 +26,8 @@ from .deps import Deps
 from .telegram import answer_ephemeral, safe_delete, safe_edit
 from ..infra.metrics import metrics
 from ..models import Track
-from ..music import links
-from ..music.video import detect_tiktok
+from ..music import links, resolver
+from ..music.resolver import InputKind
 
 logger = logging.getLogger(__name__)
 
@@ -91,17 +91,7 @@ async def _show_query_playlist(
         await safe_edit(status, messages.PLAYLIST_FAILED)
         return
     source = deps.service.default_source()
-    tracks = [
-        Track(
-            id=f"q{i}",
-            title=item.title,
-            url="",
-            uploader=item.artist or None,
-            source=source,
-            query=item.query,
-        )
-        for i, item in enumerate(playlist.items)
-    ]
+    tracks = resolver.external_items_to_tracks(playlist.items, source)
     await _render_playlist(
         deps,
         status,
@@ -166,12 +156,6 @@ def build_router(deps: Deps) -> Router:
         # The user's request is removed right away; bot replies stand on their own.
         await safe_delete(message)
 
-        match = deps.service.resolve(text)
-        # Spotify / Apple Music links can't be downloaded directly; we recognize
-        # them so we can resolve a query and find the track on YouTube Music.
-        external_url = None if match else links.detect(text)
-        external_pl = None if match else links.detect_playlist(text)
-
         async def _rate_notice() -> None:
             metrics.incr("rate_limited")
             await answer_ephemeral(
@@ -182,10 +166,14 @@ def build_router(deps: Deps) -> Router:
                 15,
             )
 
+        # Classify the input once (TikTok / YT-SC link / external link / search);
+        # the decision tree is shared with the web entry point (music.resolver).
+        info = resolver.classify(deps.service, text)
+        kind = info.kind
+
         # A TikTok link: download the clip and send it back as a video (not the
-        # MP3 audio pipeline). Checked before search since it's a direct link.
-        tiktok_url = detect_tiktok(text)
-        if tiktok_url:
+        # MP3 audio pipeline).
+        if kind is InputKind.TIKTOK:
             if not deps.rate.allow(user_id):
                 await _rate_notice()
                 return
@@ -194,58 +182,60 @@ def build_router(deps: Deps) -> Router:
                 message, messages.DOWNLOADING_VIDEO, deps.settings.results_ttl
             )
             await delivery.deliver_video(
-                deps, message.chat.id, user_id, tiktok_url, status
+                deps, message.chat.id, user_id, info.tiktok_url, status
             )
             return
 
-        # A YouTube/SoundCloud link: a single track, a playlist, or a track that
-        # lives inside a playlist (ambiguous) — then we ask which they meant.
-        if match:
-            info = deps.service.link_info(text)
-            if info and info.ambiguous:
-                prompt = await answer_ephemeral(
-                    message, messages.PLAYLIST_PROMPT, deps.settings.results_ttl
-                )
-                token = str(prompt.message_id)
-                deps.links.save(
-                    user_id,
-                    token,
-                    PendingLink(info.source, info.track_url, info.playlist_url),
-                )
-                await safe_edit(
-                    prompt,
-                    messages.PLAYLIST_PROMPT,
-                    reply_markup=formatting.playlist_prompt_keyboard(token),
-                )
-                return
-            if info and info.playlist_url:
-                status = await answer_ephemeral(
-                    message, messages.LOADING_PLAYLIST, deps.settings.results_ttl
-                )
-                await _show_url_playlist(
-                    deps, status, info.source, info.playlist_url, user_id
-                )
-                return
+        # A YouTube/SoundCloud link that's both a track and a playlist — ask which.
+        if kind is InputKind.LINK_AMBIGUOUS:
+            prompt = await answer_ephemeral(
+                message, messages.PLAYLIST_PROMPT, deps.settings.results_ttl
+            )
+            token = str(prompt.message_id)
+            deps.links.save(
+                user_id,
+                token,
+                PendingLink(info.source, info.track_url, info.playlist_url),
+            )
+            await safe_edit(
+                prompt,
+                messages.PLAYLIST_PROMPT,
+                reply_markup=formatting.playlist_prompt_keyboard(token),
+            )
+            return
+
+        # A YouTube/SoundCloud playlist or set.
+        if kind is InputKind.LINK_PLAYLIST:
+            status = await answer_ephemeral(
+                message, messages.LOADING_PLAYLIST, deps.settings.results_ttl
+            )
+            await _show_url_playlist(
+                deps, status, info.source, info.playlist_url, user_id
+            )
+            return
+
+        # A YouTube/SoundCloud single track: download it directly.
+        if kind is InputKind.LINK_TRACK:
             if not deps.rate.allow(user_id):
                 await _rate_notice()
                 return
             status = await answer_ephemeral(
                 message, messages.DOWNLOADING, deps.settings.results_ttl
             )
-            target = info.track_url if info and info.track_url else match[1]
+            target = info.track_url or info.link_url
             await delivery.deliver(deps, message.chat.id, user_id, target, status)
             return
 
         # A Spotify / Apple Music playlist link: scrape its tracks and offer each
         # as a button that searches YouTube Music on tap.
-        if external_pl:
+        if kind is InputKind.EXTERNAL_PLAYLIST:
             status = await answer_ephemeral(
                 message, messages.LOADING_PLAYLIST, deps.settings.results_ttl
             )
             await _show_query_playlist(deps, status, text, user_id)
             return
 
-        if external_url:
+        if kind is InputKind.EXTERNAL_TRACK:
             if not deps.rate.allow(user_id):
                 await _rate_notice()
                 return

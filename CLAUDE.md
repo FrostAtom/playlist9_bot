@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Telegram music-download bot (aiogram 3, polling) that searches YouTube Music
 and SoundCloud, downloads audio with `yt-dlp` + `ffmpeg`, tags it, and sends MP3s.
-Runs only as a Docker container — there is no host venv and no test suite.
+The same engine also backs a public **web download page** (a neon/cyberpunk
+landing site with search + one-click MP3 download) and a status dashboard, each
+on its own HTTP port. Runs only as a Docker container — there is no host venv.
 
 ## Commands
 
@@ -32,9 +34,25 @@ docker compose down                  # graceful SIGTERM, exits 0 in ~1s
 `docker compose up -d --build` builds locally instead (the path for Raspberry
 Pi / ARM). The Dockerfile is arch-agnostic and verified to build on arm64.
 
-There are no automated tests. To exercise code, **write a script to a file and
-copy it in**, then run it — do NOT pass multi-line Python via `docker exec ... -c`
-(PowerShell mangles inner double quotes):
+### Tests
+
+There is a pytest suite under `tests/` (offline + deterministic — no network,
+no downloads). It runs **only in Docker** (no host venv); dev-only deps live in
+`requirements-dev.txt` and are installed at runtime, not baked into the image:
+
+```powershell
+docker run --rm -v "${PWD}:/app" youtube-music-bot `
+  sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest"
+```
+
+The suite covers `app/music/resolver.py` (the shared input classifier) and the
+pure web helpers, plus the `/api/search` dispatch against an offline stub
+service. After testing, clean up any temp containers you created.
+
+For ad-hoc end-to-end checks (real search/download), **write a script to a file
+and copy it in** (or bind-mount the repo over `/app`), then run it — do NOT pass
+multi-line Python via `docker exec ... -c` (PowerShell mangles inner double
+quotes):
 
 ```powershell
 docker cp test.py youtube-music-bot:/app/test.py
@@ -48,7 +66,8 @@ Telegram needed) for testing search/download/metadata in isolation.
 
 Layered package `app/`, wired in `app/application.py` (`build_service` + `_amain`).
 The layout groups files by concern — `music/` (the engine), `bot/` (Telegram
-presentation), `infra/` (cross-cutting plumbing), `web/` (status dashboard):
+presentation), `infra/` (cross-cutting plumbing), `web/` (download page + status
+dashboard):
 
 ```
 app/
@@ -57,6 +76,7 @@ app/
   models.py                  — shared domain models (Track, Meta, AudioFile)
   music/                     — search/download engine
     service.py               — MusicService facade (routes across sources)
+    resolver.py              — shared input classifier (bot + inline + web)
     links.py                 — Spotify/Apple link & playlist/album scraping
     metadata.py              — filename cleanup, ID3 tags, cover + thumbnail
     metadata_provider.py     — album/cover enrichment (MusicBrainz / Cover Art Archive)
@@ -80,9 +100,12 @@ app/
     limiter.py               — concurrent-download + per-user rate limits
     health.py                — heartbeat for the Docker healthcheck
     metrics.py               — counters, unique users, recent-log buffer
-  web/                       — status dashboard
-    server.py                — aiohttp server; / + /api/stats + /healthz
-    templates/status.html    — the page markup
+  web/                       — web surfaces (two aiohttp servers, two ports)
+    server.py                — start_web_server (dashboard) + start_download_server (page)
+    api.py                   — /api/search + /api/download handlers for the page
+    templates/landing.html   — neon/cyberpunk music-download page markup
+    templates/status.html    — the status dashboard markup
+tests/                       — pytest suite (resolver, web helpers, /api/search)
 ```
 
 - **Sources** (`app/music/sources/`) implement `AudioSource` (`base.py`):
@@ -95,6 +118,17 @@ app/
 - **`MusicService`** (`music/service.py`) is the facade: `search(query, limit,
   source)` hits one source; `download(ref)` accepts a `Track` or a raw URL;
   `resolve`/`link_info` classify a pasted URL; `playlist` enumerates one.
+- **Input classifier** (`music/resolver.py`) is the *single source of truth* for
+  "what did the user paste/type?" — TikTok post, YouTube/SoundCloud track /
+  playlist / ambiguous link, Spotify/Apple track / playlist / album, or a plain
+  search. `classify(service, text)` is **pure and synchronous** (regex/URL
+  matching only — no network) and returns a `ClassifiedInput` (kind + extracted
+  URLs). All three free-form entry points branch on it: `bot/router.py::on_text`,
+  `bot/inline.py::_resolve_tracks`, and `web/api.py::search` — they then do their
+  own side effects (the bot auto-downloads & sends; the web returns a track
+  list). `external_items_to_tracks` is the shared Spotify/Apple-collection →
+  query-backed `Track` converter. Covered by `tests/test_resolver.py`. When you
+  change the classification, change it here — not in the callers.
 - **TikTok video** (`music/video.py`) is a deliberately *separate* path from the
   audio engine: a TikTok link is a video, so extracting MP3 would be wrong.
   `detect_tiktok` recognizes the link in `on_text` (before search), and
@@ -127,9 +161,19 @@ app/
   in `bot/caches.py`, the `Deps` bundle in `bot/deps.py`, and error-tolerant
   aiogram wrappers in `bot/telegram.py`. All bot text lives in `bot/messages.py`
   (English); keyboards in `bot/formatting.py`.
-- **Status dashboard** (`web/server.py`) serves a live metrics + error-log page,
-  fed by `infra/metrics.py` (incremented across `bot/`) and a yt-dlp staleness
-  check.
+- **Web download page** (`web/server.py::start_download_server` + `web/api.py`)
+  is a public, audio-only mirror of the bot, served on its own port (`WEB_PORT`,
+  default 8080). It needs **no Telegram token and no DB** — just a `MusicService`
+  plus the limiters — so it can be hosted standalone. `/api/search` classifies
+  the query via `music/resolver.py` (same tree as the bot, minus TikTok) and
+  returns `Track`s; `/api/download` downloads the tagged MP3 and streams it back
+  as an attachment (RFC-5987 filename, no Telegram `file_id` round-trip).
+  Downloads are gated by the same `DownloadLimiter`/`RateLimiter`, keyed by client
+  IP. The page itself is `templates/landing.html` (neon/cyberpunk, single
+  self-contained file; the source list is spliced into its JS at render).
+- **Status dashboard** (`web/server.py::start_web_server`) serves a live metrics
+  + error-log page on `METRICS_PORT` (default 8473), fed by `infra/metrics.py`
+  (incremented across `bot/` *and* `web/api.py`) and a yt-dlp staleness check.
 
 ## Cross-cutting mechanics (read before touching handlers)
 

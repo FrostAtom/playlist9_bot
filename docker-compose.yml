@@ -15,7 +15,8 @@ services:
     volumes:
       - ./cookies:/cookies
     ports:
-      - "8473:8473"
+      - "8080:8080"   # music download page
+      - "8473:8473"   # status dashboard
     depends_on:
       db:
         condition: service_healthy

@@ -1,0 +1,6 @@
+# Test-only dependencies (not installed into the production image).
+# Run the suite in a container, e.g.:
+#   docker run --rm -v "${PWD}:/app" youtube-music-bot \
+#     sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest -q"
+pytest==8.3.4
+pytest-asyncio==0.25.2

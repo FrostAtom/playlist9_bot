@@ -75,6 +75,11 @@ class Settings:
     # publish/proxy it deliberately — there is no authentication.
     metrics_port: int = 8473
     metrics_host: str = "0.0.0.0"
+    # Port for the public music-download page (search + MP3 download). Kept on a
+    # separate port from the status dashboard so the two can be exposed/proxied
+    # independently. Set to 0 to disable. No authentication — proxy deliberately.
+    web_port: int = 8080
+    web_host: str = "0.0.0.0"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -103,4 +108,6 @@ class Settings:
             cookies_file=_env_str("COOKIES_FILE", ""),
             metrics_port=_env_int("METRICS_PORT", 8473),
             metrics_host=_env_str("METRICS_HOST", "0.0.0.0"),
+            web_port=_env_int("WEB_PORT", 8080),
+            web_host=_env_str("WEB_HOST", "0.0.0.0"),
         )

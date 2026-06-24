@@ -19,7 +19,7 @@ from .music.service import MusicService
 from .music.sources.soundcloud import SoundCloudSource
 from .music.sources.youtube import YouTubeMusicSource
 from .music.video import VideoDownloader
-from .web.server import start_web_server
+from .web.server import start_download_server, start_web_server
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,18 @@ async def _amain(settings: Settings) -> None:
                 )
             except Exception:  # noqa: BLE001 - the status page must never block startup
                 logger.warning("Status page failed to start", exc_info=True)
+        if settings.web_port:
+            try:
+                state["download_web"] = await start_download_server(
+                    deps.service,
+                    settings,
+                    deps.limiter,
+                    deps.rate,
+                    settings.web_host,
+                    settings.web_port,
+                )
+            except Exception:  # noqa: BLE001 - the download page must never block startup
+                logger.warning("Download page failed to start", exc_info=True)
         if settings.storage_chat_id:
             try:
                 chat = await bot.get_chat(settings.storage_chat_id)
@@ -107,9 +119,10 @@ async def _amain(settings: Settings) -> None:
         task = state.get("heartbeat")
         if task:
             task.cancel()
-        runner = state.get("web")
-        if runner is not None:
-            await runner.cleanup()
+        for key in ("web", "download_web"):
+            runner = state.get(key)
+            if runner is not None:
+                await runner.cleanup()
         if pool is not None:
             await pool.close()
         await bot.session.close()
