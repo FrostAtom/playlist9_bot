@@ -152,7 +152,7 @@ def _finalize(
     # thumbnail yt-dlp downloaded next to the audio.
     cover = cover_bytes or _read_cover(Path(workdir))
     _embed_tags(mp3, title, artist, album, cover)
-    thumb_path = _make_thumb(cover, Path(workdir)) if cover else None
+    thumb_path = make_thumb(cover, Path(workdir)) if cover else None
 
     return AudioFile(
         path=str(mp3),
@@ -208,8 +208,12 @@ def _embed_tags(
         logger.warning("Failed to embed tags for %s", path, exc_info=True)
 
 
-def _make_thumb(cover: bytes, workdir: Path) -> Optional[str]:
-    """Build a Telegram-friendly thumbnail (JPEG, <=320px) from cover bytes."""
+def make_thumb(cover: bytes, workdir: Path) -> Optional[str]:
+    """Build a Telegram-friendly thumbnail (JPEG, <=320px) from image bytes.
+
+    Telegram rejects ``send_audio``/``send_video`` thumbnails larger than 320px
+    or ~200 kB, so both the audio and video paths funnel their cover/poster
+    through here rather than handing the raw downloaded image to Telegram."""
     try:
         image = Image.open(io.BytesIO(cover)).convert("RGB")
         image.thumbnail((320, 320))

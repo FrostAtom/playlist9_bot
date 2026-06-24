@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Optional, Pattern
 
 from ..models import VideoFile
+from .metadata import make_thumb
 from .sources.ytdlp import THUMBNAIL_TO_JPG, download_media
 
 logger = logging.getLogger(__name__)
@@ -74,9 +75,9 @@ def _to_video_file(workdir: str, info: dict) -> VideoFile:
     path = _find_video(workdir)
     if not path:
         return VideoFile(path="")
-    thumb = next(
-        (str(p) for p in Path(workdir).glob("*.jpg")), None
-    )
+    # Telegram rejects an oversized poster, and TikTok's is full-resolution — so
+    # downscale it to a compliant JPEG instead of handing over the raw image.
+    thumb = _build_thumb(Path(workdir))
     duration = info.get("duration")
     return VideoFile(
         path=str(path),
@@ -88,6 +89,18 @@ def _to_video_file(workdir: str, info: dict) -> VideoFile:
         height=info.get("height"),
         thumb_path=thumb,
     )
+
+
+def _build_thumb(workdir: Path) -> Optional[str]:
+    """Downscale the downloaded poster to a Telegram-friendly thumbnail."""
+    raw = next(workdir.glob("*.jpg"), None)
+    if raw is None:
+        return None
+    try:
+        data = raw.read_bytes()
+    except OSError:
+        return None
+    return make_thumb(data, workdir)
 
 
 def _find_video(workdir: str) -> Optional[Path]:

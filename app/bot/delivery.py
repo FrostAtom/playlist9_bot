@@ -11,6 +11,7 @@ from typing import Optional, Union
 
 from aiogram import Bot
 from aiogram.enums import ChatAction
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, Message
 
 from . import messages
@@ -18,9 +19,41 @@ from .deps import Deps
 from .formatting import display_title
 from .telegram import safe_delete, safe_edit, safe_inline_edit
 from ..infra.metrics import metrics
-from ..models import Track
+from ..models import Track, VideoFile
 
 logger = logging.getLogger(__name__)
+
+
+async def _send_video(bot: Bot, chat_id: int, video: VideoFile):
+    """Send a clip with ``send_video``, retrying without the thumbnail if Telegram
+    rejects it. A fresh ``FSInputFile`` is built per attempt (the stream is
+    one-shot). Returns the sent message."""
+    kwargs = dict(
+        caption=video.title or None,
+        duration=video.duration,
+        width=video.width,
+        height=video.height,
+        supports_streaming=True,
+    )
+    thumb = FSInputFile(video.thumb_path) if video.thumb_path else None
+    try:
+        return await bot.send_video(
+            chat_id,
+            FSInputFile(video.path, filename=video.filename),
+            thumbnail=thumb,
+            **kwargs,
+        )
+    except TelegramBadRequest:
+        if thumb is None:
+            raise
+        logger.warning(
+            "send_video rejected the thumbnail; retrying without it", exc_info=True
+        )
+        return await bot.send_video(
+            chat_id,
+            FSInputFile(video.path, filename=video.filename),
+            **kwargs,
+        )
 
 
 async def deliver(
@@ -128,19 +161,7 @@ async def deliver_video(
             await safe_edit(status, messages.UPLOADING)
             try:
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_VIDEO)
-                thumbnail = (
-                    FSInputFile(video.thumb_path) if video.thumb_path else None
-                )
-                await bot.send_video(
-                    chat_id,
-                    FSInputFile(video.path, filename=video.filename),
-                    caption=video.title or None,
-                    duration=video.duration,
-                    width=video.width,
-                    height=video.height,
-                    thumbnail=thumbnail,
-                    supports_streaming=True,
-                )
+                await _send_video(bot, chat_id, video)
                 metrics.incr("downloads_ok")
                 await safe_delete(status)
             except Exception as exc:  # noqa: BLE001
@@ -252,17 +273,7 @@ async def ensure_video_file_id(
                         messages.too_large(video.size, deps.settings.max_file_size),
                     )
                     return None
-                sent = await bot.send_video(
-                    deps.settings.storage_chat_id,
-                    FSInputFile(video.path, filename=video.filename),
-                    duration=video.duration,
-                    width=video.width,
-                    height=video.height,
-                    thumbnail=(
-                        FSInputFile(video.thumb_path) if video.thumb_path else None
-                    ),
-                    supports_streaming=True,
-                )
+                sent = await _send_video(bot, deps.settings.storage_chat_id, video)
     except Exception:  # noqa: BLE001
         logger.exception("Inline video download failed")
         await safe_inline_edit(bot, inline_message_id, messages.SEARCH_ERROR)

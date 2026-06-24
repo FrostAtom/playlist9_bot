@@ -40,6 +40,8 @@ def _base_opts(workdir: str, cookiefile: Optional[str]) -> dict:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        # No carriage-return progress bars: this runs headless in a worker thread.
+        "noprogress": True,
         "writethumbnail": True,
         # Let yt-dlp ride out transient network hiccups before raising.
         "retries": 3,
