@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from typing import List, Optional, Pattern
+
+import yt_dlp
 
 from ..models import VideoFile
 from .metadata import make_thumb
@@ -24,12 +27,20 @@ logger = logging.getLogger(__name__)
 # best streams into MP4 if a site serves them split.
 _VIDEO_FORMAT = "best[ext=mp4]/bestvideo*+bestaudio/best"
 
-# TikTok link forms: the full web host (www./m.) and the mobile/share
-# shorteners (vm./vt.). One pattern covers every subdomain so the *whole* URL is
-# captured — splitting it across patterns let the host-less branch match first
-# and silently drop the `vt.`/`vm.` prefix the shortener redirect depends on.
+# TikTok link forms we can actually download as a clip. We deliberately match
+# only *video* URLs and the share shorteners — never a bare profile/channel
+# (`tiktok.com/@user`) or a photo post, which have no MP4 and would otherwise
+# make yt-dlp churn through retries before failing with a confusing error. Each
+# pattern carries its own host so the *whole* URL (including the `vt.`/`vm.`
+# prefix a shortener redirect depends on) is captured.
 _TIKTOK_PATTERNS: List[Pattern[str]] = [
-    re.compile(r"(https?://)?(?:www\.|m\.|vm\.|vt\.)?tiktok\.com/\S+", re.IGNORECASE),
+    # Canonical clip on the web host: …/@user/video/<id>.
+    re.compile(
+        r"(https?://)?(?:www\.|m\.)?tiktok\.com/@[\w.\-]+/video/\d+", re.IGNORECASE
+    ),
+    # Share shorteners — opaque codes that redirect to a single clip.
+    re.compile(r"(https?://)?(?:vm\.|vt\.)tiktok\.com/\S+", re.IGNORECASE),
+    re.compile(r"(https?://)?(?:www\.|m\.)?tiktok\.com/t/\S+", re.IGNORECASE),
 ]
 
 # Non-video files yt-dlp may drop next to the clip (thumbnail, subtitles, etc.).
@@ -60,8 +71,22 @@ class VideoDownloader:
     # --- blocking implementation (run in a worker thread) ----------------
 
     def _download(self, url: str, workdir: str) -> VideoFile:
+        # Resolve the link first (no download). A share shortener (vt./vm.) is
+        # opaque — it can redirect to a single clip *or* to a profile/channel.
+        # A profile expands into a playlist of many clips; downloading that would
+        # pull the creator's whole feed, so we reject anything that isn't a single
+        # clip here and report it as "no video" rather than churning through
+        # retries (the symptom users saw: a long hang ending in an error).
+        probe = self._probe(url)
+        if probe is not None and (
+            probe.get("entries") is not None or probe.get("_type") == "playlist"
+        ):
+            logger.info("TikTok link is a profile/playlist, not a clip: %s", url)
+            return VideoFile(path="")
+
+        target = (probe or {}).get("webpage_url") or url
         info = download_media(
-            url,
+            target,
             workdir,
             cookiefile=self._cookiefile,
             format=_VIDEO_FORMAT,
@@ -69,6 +94,31 @@ class VideoDownloader:
             postprocessors=[THUMBNAIL_TO_JPG],
         )
         return _to_video_file(workdir, info)
+
+    def _probe(self, url: str) -> Optional[dict]:
+        """Metadata-only resolve to tell a single clip from a profile/playlist.
+
+        Uses a flat extract (no per-clip network calls) and caps the playlist at
+        one entry, so a creator page is recognized as a playlist cheaply. Returns
+        None if extraction fails — the caller then falls back to a normal download
+        attempt, so a flaky probe never blocks a genuine clip."""
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "extract_flat": "in_playlist",
+            "playlistend": 1,
+            "extractor_retries": 1,
+            "socket_timeout": 30,
+        }
+        if self._cookiefile and os.path.exists(self._cookiefile):
+            opts["cookiefile"] = self._cookiefile
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError:
+            logger.warning("TikTok probe failed for %s", url, exc_info=True)
+            return None
 
 
 def _to_video_file(workdir: str, info: dict) -> VideoFile:

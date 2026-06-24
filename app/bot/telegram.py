@@ -40,3 +40,20 @@ def delete_after(message: Message, delay: float) -> None:
         await safe_delete(message)
 
     asyncio.create_task(_later())
+
+
+async def answer_ephemeral(
+    target: Message, text: str, delay: float, **kwargs
+) -> Message:
+    """Send a transient status/notice message and schedule its deletion after
+    ``delay`` seconds.
+
+    This is the single place every non-music message gets its lifetime: status
+    messages (searching/downloading/loading), prompts and error notices all flow
+    through here. On the happy path the delivery pipeline deletes the status as
+    soon as the audio is sent; otherwise — including any download error — the
+    scheduled deletion removes it after ``delay``, exactly like a search result.
+    """
+    msg = await target.answer(text, **kwargs)
+    delete_after(msg, delay)
+    return msg

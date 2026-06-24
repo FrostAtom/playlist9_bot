@@ -40,6 +40,9 @@ SEARCH_ERROR = "Search error, please try again 🔁"
 INLINE_TIKTOK_TITLE = "🎬 TikTok video"
 INLINE_TIKTOK_DESC = "Tap to download and send the clip"
 
+# Inline-result button: opens the original source (YouTube/SoundCloud/TikTok/…).
+BTN_OPEN = "▶️ Open source"
+
 
 def link_not_found(provider: str) -> str:
     return f"Couldn't find that {provider} track to download 😔"

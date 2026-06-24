@@ -23,7 +23,7 @@ from aiogram.types import (
 from . import delivery, formatting, inline, messages
 from .caches import QUERY_PLAYLIST, URL_PLAYLIST, PendingLink, SearchState
 from .deps import Deps
-from .telegram import delete_after, safe_delete, safe_edit
+from .telegram import answer_ephemeral, safe_delete, safe_edit
 from ..infra.metrics import metrics
 from ..models import Track
 from ..music import links
@@ -174,12 +174,13 @@ def build_router(deps: Deps) -> Router:
 
         async def _rate_notice() -> None:
             metrics.incr("rate_limited")
-            notice = await message.answer(
+            await answer_ephemeral(
+                message,
                 messages.rate_limited(
                     deps.settings.rate_per_minute, deps.rate.retry_after(user_id)
-                )
+                ),
+                15,
             )
-            delete_after(notice, 15)
 
         # A TikTok link: download the clip and send it back as a video (not the
         # MP3 audio pipeline). Checked before search since it's a direct link.
@@ -189,7 +190,9 @@ def build_router(deps: Deps) -> Router:
                 await _rate_notice()
                 return
             metrics.incr("tiktok_videos")
-            status = await message.answer(messages.DOWNLOADING_VIDEO)
+            status = await answer_ephemeral(
+                message, messages.DOWNLOADING_VIDEO, deps.settings.results_ttl
+            )
             await delivery.deliver_video(
                 deps, message.chat.id, user_id, tiktok_url, status
             )
@@ -200,14 +203,15 @@ def build_router(deps: Deps) -> Router:
         if match:
             info = deps.service.link_info(text)
             if info and info.ambiguous:
-                prompt = await message.answer(messages.PLAYLIST_PROMPT)
+                prompt = await answer_ephemeral(
+                    message, messages.PLAYLIST_PROMPT, deps.settings.results_ttl
+                )
                 token = str(prompt.message_id)
                 deps.links.save(
                     user_id,
                     token,
                     PendingLink(info.source, info.track_url, info.playlist_url),
                 )
-                delete_after(prompt, deps.settings.results_ttl)
                 await safe_edit(
                     prompt,
                     messages.PLAYLIST_PROMPT,
@@ -215,8 +219,9 @@ def build_router(deps: Deps) -> Router:
                 )
                 return
             if info and info.playlist_url:
-                status = await message.answer(messages.LOADING_PLAYLIST)
-                delete_after(status, deps.settings.results_ttl)
+                status = await answer_ephemeral(
+                    message, messages.LOADING_PLAYLIST, deps.settings.results_ttl
+                )
                 await _show_url_playlist(
                     deps, status, info.source, info.playlist_url, user_id
                 )
@@ -224,7 +229,9 @@ def build_router(deps: Deps) -> Router:
             if not deps.rate.allow(user_id):
                 await _rate_notice()
                 return
-            status = await message.answer(messages.DOWNLOADING)
+            status = await answer_ephemeral(
+                message, messages.DOWNLOADING, deps.settings.results_ttl
+            )
             target = info.track_url if info and info.track_url else match[1]
             await delivery.deliver(deps, message.chat.id, user_id, target, status)
             return
@@ -232,8 +239,9 @@ def build_router(deps: Deps) -> Router:
         # A Spotify / Apple Music playlist link: scrape its tracks and offer each
         # as a button that searches YouTube Music on tap.
         if external_pl:
-            status = await message.answer(messages.LOADING_PLAYLIST)
-            delete_after(status, deps.settings.results_ttl)
+            status = await answer_ephemeral(
+                message, messages.LOADING_PLAYLIST, deps.settings.results_ttl
+            )
             await _show_query_playlist(deps, status, text, user_id)
             return
 
@@ -241,7 +249,9 @@ def build_router(deps: Deps) -> Router:
             if not deps.rate.allow(user_id):
                 await _rate_notice()
                 return
-            status = await message.answer(messages.RESOLVING_LINK)
+            status = await answer_ephemeral(
+                message, messages.RESOLVING_LINK, deps.settings.results_ttl
+            )
             external = await asyncio.to_thread(links.resolve, text)
             if external is None:
                 await safe_edit(status, messages.LINK_FAILED)
@@ -263,9 +273,10 @@ def build_router(deps: Deps) -> Router:
             return
 
         metrics.incr("searches")
-        status = await message.answer(messages.searching(text))
         # The results message is ephemeral — it auto-deletes after a few minutes.
-        delete_after(status, deps.settings.results_ttl)
+        status = await answer_ephemeral(
+            message, messages.searching(text), deps.settings.results_ttl
+        )
         source = deps.service.default_source()
         try:
             tracks = await deps.service.search(text, deps.settings.max_results, source)
@@ -308,7 +319,9 @@ def build_router(deps: Deps) -> Router:
         track = state.tracks[index]
         # Keep the results message (and its keyboard) intact so the user can
         # pick more tracks; download progress goes into a fresh message.
-        status = await callback.message.answer(messages.DOWNLOADING_CHOICE)
+        status = await answer_ephemeral(
+            callback.message, messages.DOWNLOADING_CHOICE, deps.settings.results_ttl
+        )
         if state.kind == QUERY_PLAYLIST:
             # Spotify/Apple item: no direct URL — find it on YouTube Music first.
             await _deliver_query_item(

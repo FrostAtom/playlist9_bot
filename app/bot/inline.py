@@ -16,7 +16,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from typing import List
+import urllib.parse
+from typing import List, Optional
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
@@ -173,7 +174,13 @@ async def _track_results(deps: Deps, text: str, tracks: List[Track]) -> list:
         )
         if file_id:
             # Already on Telegram's servers — send it as playable audio.
-            results.append(InlineQueryResultCachedAudio(id=rid, audio_file_id=file_id))
+            results.append(
+                InlineQueryResultCachedAudio(
+                    id=rid,
+                    audio_file_id=file_id,
+                    reply_markup=_open_keyboard(_open_url(track)),
+                )
+            )
             continue
         # Offer a placeholder; the file is downloaded once the user picks it
         # (handled in handle_chosen). A keyboard is required so Telegram returns
@@ -189,7 +196,7 @@ async def _track_results(deps: Deps, text: str, tracks: List[Track]) -> list:
                 input_message_content=InputTextMessageContent(
                     message_text=f"🎵 {title}\n⏳ Downloading…"
                 ),
-                reply_markup=_wait_keyboard(deps),
+                reply_markup=_open_keyboard(_open_url(track)),
             )
         )
     return results
@@ -203,9 +210,10 @@ def _tiktok_result(deps: Deps, url: str) -> InlineQueryResultArticle:
         title=messages.INLINE_TIKTOK_TITLE,
         description=messages.INLINE_TIKTOK_DESC,
         input_message_content=InputTextMessageContent(
-            message_text=f"🎬 {messages.INLINE_TIKTOK_TITLE}\n⏳ Downloading…"
+            # The title already carries the 🎬 — don't prefix a second one.
+            message_text=f"{messages.INLINE_TIKTOK_TITLE}\n⏳ Downloading…"
         ),
-        reply_markup=_wait_keyboard(deps),
+        reply_markup=_open_keyboard(url),
     )
 
 
@@ -220,17 +228,32 @@ def _result_id(deps: Deps, text: str, track: Track, index: int) -> str:
     return f"q{index}:{_short_hash(text)}"
 
 
-def _wait_keyboard(deps: Deps) -> InlineKeyboardMarkup:
+def _open_keyboard(url: Optional[str]) -> Optional[InlineKeyboardMarkup]:
+    """A single "Open source" button linking to the original media URL.
+
+    Telegram also needs *some* inline keyboard on an article result for it to
+    return an ``inline_message_id`` we can later edit into media — so this button
+    pulls double duty: it gives the user the direct link and keeps the result
+    editable. Returns None if there's no URL to link to (no button is shown)."""
+    if not url:
+        return None
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="⏳ Downloading…",
-                    url=f"https://t.me/{deps.bot_username}",
-                )
-            ]
+            [InlineKeyboardButton(text=messages.BTN_OPEN, url=url)]
         ]
     )
+
+
+def _open_url(track: Track) -> Optional[str]:
+    """The best "open the source" link for a track: its own URL when it has one,
+    otherwise (Spotify/Apple playlist picks carry only a search query) a YouTube
+    Music search for the track."""
+    if track.url:
+        return track.url
+    query = track.query or formatting.display_title(track)
+    if not query:
+        return None
+    return "https://music.youtube.com/search?q=" + urllib.parse.quote(query)
 
 
 def _short_hash(text: str) -> str:
@@ -272,6 +295,7 @@ async def _finish_audio(
                 performer=track.uploader,
             ),
             inline_message_id=inline_message_id,
+            reply_markup=_open_keyboard(_open_url(track)),
         )
     except TelegramBadRequest as exc:
         if _message_deleted(exc):
@@ -293,6 +317,7 @@ async def _finish_video(
         await bot.edit_message_media(
             media=InputMediaVideo(media=file_id),
             inline_message_id=inline_message_id,
+            reply_markup=_open_keyboard(url),
         )
     except TelegramBadRequest as exc:
         if _message_deleted(exc):

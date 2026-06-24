@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 # these substrings mark a *permanent* failure that retrying can't fix.
 _PERMANENT_ERROR = re.compile(
     r"(unavailable|private|removed|deleted|copyright|not available|"
-    r"does not exist|age|sign in to confirm|members[- ]only|geo)",
+    r"does not exist|age|sign in to confirm|members[- ]only|geo|"
+    # "Unsupported URL" is what yt-dlp raises for e.g. a TikTok *photo* post —
+    # a different content type it can't download. Retrying never helps.
+    r"unsupported url)",
     re.IGNORECASE,
 )
 

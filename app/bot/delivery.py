@@ -141,10 +141,12 @@ async def deliver_video(
         with tempfile.TemporaryDirectory() as workdir:
             try:
                 video = await deps.video.download(url, workdir)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 metrics.incr("downloads_failed")
                 logger.exception("Video download failed")
-                await safe_edit(status, messages.download_failed(exc))
+                # A TikTok link can be a profile/channel or a photo post (no MP4)
+                # — "no video" is clearer than a raw yt-dlp error string.
+                await safe_edit(status, messages.NO_VIDEO)
                 return
 
             if not video.exists:
@@ -276,7 +278,10 @@ async def ensure_video_file_id(
                 sent = await _send_video(bot, deps.settings.storage_chat_id, video)
     except Exception:  # noqa: BLE001
         logger.exception("Inline video download failed")
-        await safe_inline_edit(bot, inline_message_id, messages.SEARCH_ERROR)
+        # A TikTok link can fail because it's a profile/channel or an otherwise
+        # un-downloadable post — "no video" is more accurate (and less alarming)
+        # than a generic search error.
+        await safe_inline_edit(bot, inline_message_id, messages.NO_VIDEO)
         return None
 
     return sent.video.file_id if sent.video else None
