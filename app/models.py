@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,26 @@ class AudioFile:
     @property
     def filename(self) -> str:
         return os.path.basename(self.path)
+
+
+@dataclass(frozen=True)
+class PhotoAlbum:
+    """Images downloaded from a TikTok photo (slideshow) post, ready to be sent
+    as a Telegram media group. TikTok photo posts have no MP4, so they take a
+    separate delivery path from :class:`VideoFile`."""
+
+    paths: Tuple[str, ...] = field(default_factory=tuple)
+    title: Optional[str] = None
+    uploader: Optional[str] = None
+
+    @property
+    def existing(self) -> Tuple[str, ...]:
+        """Only the image paths that were actually written to disk."""
+        return tuple(p for p in self.paths if p and os.path.exists(p))
+
+    @property
+    def exists(self) -> bool:
+        return bool(self.existing)
 
 
 @dataclass(frozen=True)

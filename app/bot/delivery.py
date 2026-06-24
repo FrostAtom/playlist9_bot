@@ -12,14 +12,17 @@ from typing import Optional, Union
 from aiogram import Bot
 from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import FSInputFile, Message
+from aiogram.types import FSInputFile, InputMediaPhoto, Message
 
 from . import messages
 from .deps import Deps
 from .formatting import display_title
 from .telegram import safe_delete, safe_edit, safe_inline_edit
 from ..infra.metrics import metrics
-from ..models import Track, VideoFile
+from ..models import PhotoAlbum, Track, VideoFile
+
+# Telegram caption limit for a media-group item.
+_CAPTION_LIMIT = 1024
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +130,9 @@ async def deliver_video(
     url: str,
     status: Message,
 ) -> None:
-    """Download the TikTok clip at ``url`` and send it as a video to ``chat_id``,
-    driving ``status`` through queued → downloading → uploading."""
+    """Download the TikTok post at ``url`` and send it to ``chat_id`` — a clip via
+    ``send_video`` or a photo slideshow as a media-group album — driving ``status``
+    through queued → downloading → uploading."""
     bot = status.bot
 
     queued = deps.limiter.busy(user_id)
@@ -140,7 +144,7 @@ async def deliver_video(
             await safe_edit(status, messages.DOWNLOADING_VIDEO)
         with tempfile.TemporaryDirectory() as workdir:
             try:
-                video = await deps.video.download(url, workdir)
+                media = await deps.video.download(url, workdir)
             except Exception:  # noqa: BLE001
                 metrics.incr("downloads_failed")
                 logger.exception("Video download failed")
@@ -149,27 +153,70 @@ async def deliver_video(
                 await safe_edit(status, messages.NO_VIDEO)
                 return
 
-            if not video.exists:
+            if isinstance(media, PhotoAlbum):
+                await _deliver_album(deps, chat_id, media, status)
+                return
+
+            if not media.exists:
                 await safe_edit(status, messages.NO_VIDEO)
                 return
 
-            if video.size > deps.settings.max_file_size:
+            if media.size > deps.settings.max_file_size:
                 await safe_edit(
                     status,
-                    messages.too_large(video.size, deps.settings.max_file_size),
+                    messages.too_large(media.size, deps.settings.max_file_size),
                 )
                 return
 
             await safe_edit(status, messages.UPLOADING)
             try:
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_VIDEO)
-                await _send_video(bot, chat_id, video)
+                await _send_video(bot, chat_id, media)
                 metrics.incr("downloads_ok")
                 await safe_delete(status)
             except Exception as exc:  # noqa: BLE001
                 metrics.incr("sends_failed")
                 logger.exception("Video send failed")
                 await safe_edit(status, messages.send_failed(exc))
+
+
+async def _deliver_album(
+    deps: Deps, chat_id: int, album: PhotoAlbum, status: Message
+) -> None:
+    """Send a TikTok photo post's images as a Telegram album (or a single photo)."""
+    bot = status.bot
+    paths = album.existing
+    if not paths:
+        await safe_edit(status, messages.NO_VIDEO)
+        return
+
+    caption = album.title or None
+    if caption and len(caption) > _CAPTION_LIMIT:
+        caption = caption[: _CAPTION_LIMIT - 1] + "…"
+
+    await safe_edit(status, messages.UPLOADING)
+    try:
+        await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
+        if len(paths) == 1:
+            # A media group needs ≥2 items; a lone image goes via send_photo.
+            await bot.send_photo(
+                chat_id, FSInputFile(paths[0]), caption=caption
+            )
+        else:
+            group = [
+                InputMediaPhoto(
+                    media=FSInputFile(path),
+                    caption=caption if index == 0 else None,
+                )
+                for index, path in enumerate(paths)
+            ]
+            await bot.send_media_group(chat_id, media=group)
+        metrics.incr("downloads_ok")
+        await safe_delete(status)
+    except Exception as exc:  # noqa: BLE001
+        metrics.incr("sends_failed")
+        logger.exception("Album send failed")
+        await safe_edit(status, messages.send_failed(exc))
 
 
 async def ensure_file_id(
@@ -265,7 +312,8 @@ async def ensure_video_file_id(
         async with deps.limiter.slot(user_id):
             with tempfile.TemporaryDirectory() as workdir:
                 video = await deps.video.download(url, workdir)
-                if not video.exists:
+                # A photo slideshow can't be returned as a single inline file.
+                if isinstance(video, PhotoAlbum) or not video.exists:
                     await safe_inline_edit(bot, inline_message_id, messages.NO_VIDEO)
                     return None
                 if video.size > deps.settings.max_file_size:
