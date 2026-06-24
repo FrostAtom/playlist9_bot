@@ -44,6 +44,13 @@ _COUNTER_LABELS = {
     "rate_limited": "Rate-limited",
 }
 
+# Which section each counter belongs to on the status page. Counters not named
+# here fall into a catch-all "Other" block, so new metrics are never dropped.
+_COUNTER_GROUPS = {
+    "Activity": ["searches", "inline_queries", "links_resolved", "playlists"],
+    "Downloads": ["downloads_ok", "downloads_failed", "sends_failed", "rate_limited"],
+}
+
 # Rendered once on first request, then served from memory (the file is static).
 _page_cache: str | None = None
 
@@ -52,7 +59,11 @@ def _render_page() -> str:
     global _page_cache
     if _page_cache is None:
         markup = _TEMPLATE.read_text(encoding="utf-8")
-        _page_cache = markup.replace("__LABELS__", json.dumps(_COUNTER_LABELS))
+        _page_cache = (
+            markup
+            .replace("__LABELS__", json.dumps(_COUNTER_LABELS))
+            .replace("__GROUPS__", json.dumps(_COUNTER_GROUPS))
+        )
     return _page_cache
 
 def _parse_ytdlp_date(version: str) -> Optional[date]:

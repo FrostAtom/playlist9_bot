@@ -3,119 +3,542 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>playlist9_bot · status</title>
+<title>playlist9_bot · dashboard</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #0a0c12;
+    --bg-2: #0f131c;
+    --panel: #131826;
+    --panel-2: #171d2e;
+    --line: #232c42;
+    --line-soft: #1b2235;
+    --txt: #e8edf7;
+    --muted: #8a93a8;
+    --faint: #5c6478;
+    --accent: #6e8bff;
+    --accent-2: #9d7bff;
+    --green: #3ddc84;
+    --amber: #f5b54a;
+    --red: #ff5d6c;
+    --cyan: #38d6e0;
+    --shadow: 0 18px 40px -22px rgba(0,0,0,.9);
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-         background: #0d1117; color: #e6edf3; }
-  header { padding: 24px 28px 8px; }
-  h1 { margin: 0; font-size: 20px; }
-  h1 a { color: inherit; text-decoration: none; }
-  h1 a:hover { text-decoration: underline; }
-  .sub { color: #8b949e; font-size: 13px; margin-top: 4px; }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
-         background: #3fb950; margin-right: 6px; vertical-align: middle; }
-  .dot.stale { background: #d29922; }
-  .banner { display: none; margin: 8px 28px 0; padding: 12px 16px; border-radius: 10px;
-            background: #3a2a12; border: 1px solid #9e6a1f; color: #f0c674; font-size: 14px; }
-  .banner code { background: #00000033; padding: 1px 5px; border-radius: 4px; }
-  main { padding: 12px 28px 40px; }
-  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
-  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
-  .card.hi { border-color: #1f6feb; }
-  .card .n { font-size: 28px; font-weight: 650; }
-  .card .l { color: #8b949e; font-size: 13px; margin-top: 2px; }
-  .card.bad .n { color: #f85149; }
-  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em;
-       color: #8b949e; margin: 28px 0 12px; }
-  .logs { background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
-  .row { display: grid; grid-template-columns: 150px 70px 1fr; gap: 12px;
-         padding: 9px 14px; border-top: 1px solid #21262d; font-size: 13px; }
-  .row:first-child { border-top: none; }
-  .row .t { color: #8b949e; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .lvl { font-weight: 650; }
-  .lvl.WARNING { color: #d29922; }
-  .lvl.ERROR, .lvl.CRITICAL { color: #f85149; }
-  .msg { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .empty { padding: 18px 14px; color: #8b949e; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.55 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--txt);
+    background:
+      radial-gradient(1100px 600px at 88% -8%, rgba(110,139,255,.16), transparent 60%),
+      radial-gradient(900px 600px at 0% 0%, rgba(157,123,255,.12), transparent 55%),
+      var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  ::selection { background: rgba(110,139,255,.35); }
+
+  /* ───────── shell: sidebar + content ───────── */
+  .shell { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+
+  aside {
+    position: sticky; top: 0; height: 100vh;
+    padding: 22px 18px;
+    border-right: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, rgba(19,24,38,.7), rgba(10,12,18,.4));
+    backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; gap: 26px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 8px 22px -8px rgba(110,139,255,.8);
+  }
+  .logo svg { width: 21px; height: 21px; }
+  .brand .name { font-weight: 700; font-size: 15px; letter-spacing: .2px; }
+  .brand .role { color: var(--muted); font-size: 11.5px; }
+
+  nav { display: flex; flex-direction: column; gap: 3px; }
+  nav .nlabel { color: var(--faint); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .12em; margin: 0 0 8px 8px; font-weight: 700; }
+  nav a {
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 11px; border-radius: 9px; text-decoration: none;
+    color: var(--muted); font-weight: 550; font-size: 13.5px;
+    transition: background .15s, color .15s;
+  }
+  nav a:hover { background: var(--panel-2); color: var(--txt); }
+  nav a.active { background: linear-gradient(90deg, rgba(110,139,255,.18), rgba(110,139,255,.04));
+    color: var(--txt); box-shadow: inset 2px 0 0 var(--accent); }
+  nav a svg { width: 16px; height: 16px; opacity: .85; flex: none; }
+
+  .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
+  .pulse {
+    display: flex; align-items: center; gap: 9px; padding: 10px 12px;
+    border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel);
+    font-size: 12.5px; color: var(--muted);
+  }
+  .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: var(--green); flex: none; }
+  .dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+    background: var(--green); opacity: .5; animation: ping 1.8s ease-out infinite; }
+  .dot.bad { background: var(--red); } .dot.bad::after { background: var(--red); }
+  .dot.warn { background: var(--amber); } .dot.warn::after { background: var(--amber); }
+  @keyframes ping { 0% { transform: scale(1); opacity: .5; } 80%,100% { transform: scale(2.6); opacity: 0; } }
+  .side-foot .build { color: var(--faint); font-size: 11px; padding: 0 4px; }
+  .side-foot .build b { color: var(--muted); font-weight: 600; }
+
+  /* ───────── content ───────── */
+  main { padding: 26px 30px 48px; max-width: 1180px; }
+  .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 6px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 22px; font-weight: 750; letter-spacing: -.2px; }
+  .topbar .crumb { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .topbar .clock { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums;
+    display: flex; align-items: center; gap: 8px; }
+  .topbar .clock .dot { width: 7px; height: 7px; }
+
+  .banner { display: none; margin: 14px 0 0; padding: 13px 16px; border-radius: 12px;
+    background: linear-gradient(90deg, rgba(245,181,74,.14), rgba(245,181,74,.05));
+    border: 1px solid rgba(245,181,74,.4); color: #ffd98a; font-size: 13.5px; }
+  .banner code { background: rgba(0,0,0,.35); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
+
+  section { margin-top: 30px; scroll-margin-top: 18px; }
+  .shead { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; }
+  .shead h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); margin: 0; font-weight: 700; }
+  .shead .hint { color: var(--faint); font-size: 12px; }
+
+  /* KPI hero row */
+  .kpis { display: grid; gap: 16px; grid-template-columns: repeat(4, 1fr); }
+  .kpi {
+    position: relative; overflow: hidden;
+    background: linear-gradient(160deg, var(--panel), var(--bg-2));
+    border: 1px solid var(--line); border-radius: 16px; padding: 16px 17px;
+    box-shadow: var(--shadow);
+  }
+  .kpi .top { display: flex; align-items: center; justify-content: space-between; }
+  .kpi .ico { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+    background: rgba(110,139,255,.13); color: var(--accent); }
+  .kpi .ico svg { width: 17px; height: 17px; }
+  .kpi.g .ico { background: rgba(61,220,132,.14); color: var(--green); }
+  .kpi.c .ico { background: rgba(56,214,224,.13); color: var(--cyan); }
+  .kpi.v .ico { background: rgba(157,123,255,.15); color: var(--accent-2); }
+  .kpi .lbl { color: var(--muted); font-size: 12.5px; font-weight: 550; }
+  .kpi .val { font-size: 30px; font-weight: 760; letter-spacing: -.5px; margin-top: 9px;
+    line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .kpi .val small { font-size: 15px; color: var(--muted); font-weight: 600; }
+  .kpi .delta { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+  .kpi .spark { position: absolute; right: 0; bottom: 0; left: 0; height: 34px; opacity: .9; }
+
+  /* generic card grid */
+  .grid { display: grid; gap: 16px; }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  .cols-3 { grid-template-columns: 1.1fr 1fr 1fr; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 18px; box-shadow: var(--shadow);
+  }
+  .panel > .ph { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .panel .ph h3 { margin: 0; font-size: 13.5px; font-weight: 650; }
+  .panel .ph .tag { font-size: 11.5px; color: var(--faint); }
+
+  /* radial gauge */
+  .gauge { display: flex; align-items: center; gap: 18px; }
+  .gauge .ring { position: relative; width: 132px; height: 132px; flex: none; }
+  .gauge .ring .pct { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  .gauge .ring .pct b { font-size: 30px; font-weight: 770; letter-spacing: -.5px; }
+  .gauge .ring .pct span { display: block; font-size: 10.5px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em; }
+  .gauge .legs { display: flex; flex-direction: column; gap: 11px; flex: 1; }
+  .leg { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .leg .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .leg .k { color: var(--muted); }
+  .leg .v { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+  /* donut */
+  .donut-wrap { display: flex; align-items: center; gap: 18px; }
+  .donut { width: 132px; height: 132px; flex: none; }
+  .donut-legs { display: flex; flex-direction: column; gap: 9px; flex: 1; }
+
+  /* bars */
+  .bars { display: flex; flex-direction: column; gap: 13px; }
+  .bar .bh { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+  .bar .bh .k { color: var(--muted); }
+  .bar .bh .v { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .track { height: 8px; border-radius: 6px; background: var(--line-soft); overflow: hidden; }
+  .fill { height: 100%; border-radius: 6px; transition: width .6s cubic-bezier(.2,.8,.2,1); }
+
+  /* mini stat strip */
+  .strip { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .stat { background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; }
+  .stat .n { font-size: 23px; font-weight: 720; font-variant-numeric: tabular-nums; }
+  .stat .l { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .stat .s { color: var(--faint); font-size: 11.5px; margin-top: 5px; }
+  .stat.bad .n { color: var(--red); }
+  .stat.good .n { color: var(--green); }
+
+  /* logs */
+  .logs { display: flex; flex-direction: column; }
+  .lrow { display: grid; grid-template-columns: 158px 78px 1fr; gap: 14px;
+    padding: 11px 4px; border-top: 1px solid var(--line-soft); font-size: 12.5px; }
+  .lrow:first-child { border-top: none; }
+  .lrow .t { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .lvl { font-weight: 700; font-size: 11px; letter-spacing: .04em; }
+  .lvl-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; }
+  .lvl.WARNING .lvl-pill { color: var(--amber); background: rgba(245,181,74,.13); }
+  .lvl.ERROR .lvl-pill, .lvl.CRITICAL .lvl-pill { color: var(--red); background: rgba(255,93,108,.13); }
+  .msg { white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #cdd6e6; }
+  .empty { padding: 26px 4px; color: var(--muted); text-align: center; }
+  .empty .big { font-size: 30px; margin-bottom: 6px; }
+
+  .skeleton { color: var(--faint); }
+
+  @media (max-width: 980px) {
+    .shell { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
+    aside nav { flex-direction: row; flex-wrap: wrap; }
+    nav .nlabel { display: none; }
+    .side-foot { margin: 0; flex-direction: row; }
+    .kpis { grid-template-columns: 1fr 1fr; }
+    .cols-2, .cols-3 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) { .kpis { grid-template-columns: 1fr; } main { padding: 20px 16px 40px; } }
 </style>
 </head>
 <body>
-<header>
-  <h1><a href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener">playlist9_bot</a></h1>
-  <div class="sub"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
-</header>
-<div class="banner" id="banner"></div>
-<main>
-  <div class="grid" id="cards"></div>
-  <h2>Recent errors &amp; warnings</h2>
-  <div class="logs" id="logs"></div>
-</main>
+<div class="shell">
+  <!-- ───────── sidebar ───────── -->
+  <aside>
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="name">playlist9_bot</div>
+        <div class="role">music delivery · ops</div>
+      </div>
+    </div>
+
+    <nav>
+      <div class="nlabel">Dashboard</div>
+      <a href="#overview" class="active" data-nav>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Overview</a>
+      <a href="#activity" data-nav>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+        Activity</a>
+      <a href="#delivery" data-nav>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        Delivery</a>
+      <a href="#logs" data-nav>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M9 13h6M9 17h4"/></svg>
+        Logs</a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="pulse"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
+      <div class="build">yt-dlp <b id="ytv">—</b> <span id="ytage"></span></div>
+      <div class="build"><a href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none">github ↗</a></div>
+    </div>
+  </aside>
+
+  <!-- ───────── content ───────── -->
+  <main>
+    <div class="topbar">
+      <div>
+        <h1>Live Overview</h1>
+        <div class="crumb">Real-time telemetry · in-memory since last restart</div>
+      </div>
+      <div class="clock"><span class="dot" id="dot2"></span><span id="clock">—</span></div>
+    </div>
+
+    <div class="banner" id="banner"></div>
+
+    <!-- KPI hero -->
+    <section id="overview">
+      <div class="kpis" id="kpis">
+        <div class="kpi skeleton"><div class="lbl">loading…</div><div class="val">—</div></div>
+        <div class="kpi skeleton"><div class="lbl">loading…</div><div class="val">—</div></div>
+        <div class="kpi skeleton"><div class="lbl">loading…</div><div class="val">—</div></div>
+        <div class="kpi skeleton"><div class="lbl">loading…</div><div class="val">—</div></div>
+      </div>
+    </section>
+
+    <!-- gauge + donut -->
+    <section>
+      <div class="grid cols-2">
+        <div class="panel">
+          <div class="ph"><h3>Delivery success</h3><span class="tag">ok vs failed</span></div>
+          <div class="gauge">
+            <div class="ring">
+              <svg viewBox="0 0 120 120" width="132" height="132">
+                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--line-soft)" stroke-width="12"/>
+                <circle id="gaugeArc" cx="60" cy="60" r="52" fill="none" stroke="url(#gg)" stroke-width="12"
+                        stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="327"
+                        transform="rotate(-90 60 60)" style="transition:stroke-dashoffset .7s cubic-bezier(.2,.8,.2,1)"/>
+                <defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#3ddc84"/><stop offset="1" stop-color="#38d6e0"/>
+                </linearGradient></defs>
+              </svg>
+              <div class="pct"><div><b id="gaugePct">—</b><span>success</span></div></div>
+            </div>
+            <div class="legs" id="gaugeLegs"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><h3>Request mix</h3><span class="tag">how users arrive</span></div>
+          <div class="donut-wrap">
+            <svg class="donut" viewBox="0 0 42 42" id="donut">
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--line-soft)" stroke-width="6"/>
+            </svg>
+            <div class="donut-legs" id="donutLegs"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- activity -->
+    <section id="activity">
+      <div class="shead"><h2>Activity</h2><span class="hint">requests handled this session</span></div>
+      <div class="strip" id="activityStrip"></div>
+    </section>
+
+    <!-- delivery -->
+    <section id="delivery">
+      <div class="shead"><h2>Delivery</h2><span class="hint">download &amp; send outcomes</span></div>
+      <div class="grid cols-2">
+        <div class="panel">
+          <div class="ph"><h3>Outcomes</h3><span class="tag">cumulative</span></div>
+          <div class="bars" id="deliveryBars"></div>
+        </div>
+        <div class="panel">
+          <div class="ph"><h3>Counters</h3><span class="tag">raw</span></div>
+          <div class="strip" id="deliveryStrip"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- logs -->
+    <section id="logs">
+      <div class="shead"><h2>Recent errors &amp; warnings</h2><span class="hint" id="logHint">—</span></div>
+      <div class="panel"><div class="logs" id="logs"></div></div>
+    </section>
+  </main>
+</div>
+
 <script>
 const LABELS = __LABELS__;
-const fmtDur = s => {
-  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600),
-        m = Math.floor(s%3600/60), sec = s%60;
-  return (d?d+"d ":"") + (h?h+"h ":"") + (m?m+"m ":"") + sec + "s";
-};
-const fmtTime = ts => new Date(ts*1000).toLocaleString();
-const esc = t => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const GROUPS = __GROUPS__;
 
-function renderBanner(y) {
-  const el = document.getElementById("banner");
+const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const num = n => typeof n === "number" ? n.toLocaleString() : esc(n);
+const fmtTime = ts => new Date(ts*1000).toLocaleString();
+const fmtDur = s => {
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  if (d) return d + "d " + h + "h";
+  if (h) return h + "h " + m + "m";
+  return m + "m " + (s%60) + "s";
+};
+
+// ── icons (inline so the page stays a single self-contained file) ──
+const ICON = {
+  clock: '<path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  down: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  pct: '<path d="m19 5-14 14"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+};
+const svgIco = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+
+// rolling history for sparklines (per metric key), capped
+const HIST = {};
+const HCAP = 48;
+function push(key, v) {
+  (HIST[key] = HIST[key] || []).push(v);
+  if (HIST[key].length > HCAP) HIST[key].shift();
+}
+function sparkline(key, color) {
+  const a = HIST[key] || [];
+  if (a.length < 2) return "";
+  const min = Math.min(...a), max = Math.max(...a), span = max - min || 1;
+  const W = 100, H = 34, n = a.length;
+  const pts = a.map((v, i) => [ (i/(n-1))*W, H - 4 - ((v-min)/span)*(H-8) ]);
+  const line = pts.map((p,i) => (i?"L":"M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const area = line + ` L${W} ${H} L0 ${H} Z`;
+  const gid = "sg_" + key;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${color}" stop-opacity=".34"/>
+      <stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#${gid})"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+const COLORS = ["#6e8bff","#9d7bff","#38d6e0","#3ddc84","#f5b54a","#ff5d6c"];
+
+function kpiCard(cls, ico, label, valHtml, delta, sparkKey, sparkColor) {
+  return `<div class="kpi ${cls}">
+    <div class="top"><span class="lbl">${esc(label)}</span><span class="ico">${svgIco(ico)}</span></div>
+    <div class="val">${valHtml}</div>
+    <div class="delta">${esc(delta || "")}</div>
+    ${sparkKey ? sparkline(sparkKey, sparkColor) : ""}
+  </div>`;
+}
+
+function renderKPIs(d, c) {
+  const ok = c.downloads_ok || 0, fail = c.downloads_failed || 0, att = ok + fail;
+  const rate = att ? Math.round(ok/att*100) : null;
+  const totalReq = (c.searches||0)+(c.inline_queries||0)+(c.links_resolved||0)+(c.playlists||0);
+  $("kpis").innerHTML = [
+    kpiCard("g", ICON.down, "Downloads sent", num(ok), att ? `${num(att)} attempts` : "no attempts yet", "downloads_ok", "#3ddc84"),
+    kpiCard("", ICON.users, "Active users · 24h", num(d.unique_users_24h ?? 0), "rolling window", "users", "#6e8bff"),
+    kpiCard("c", ICON.pct, "Total requests", num(totalReq), "searches · inline · links", "requests", "#38d6e0"),
+    kpiCard("v", ICON.clock, "Uptime", fmtDur(d.uptime_seconds||0), "since last restart", null),
+  ].join("");
+}
+
+function renderGauge(c) {
+  const ok = c.downloads_ok || 0, fail = c.downloads_failed || 0, att = ok + fail;
+  const rate = att ? ok/att : 0;
+  const C = 2 * Math.PI * 52;
+  $("gaugeArc").setAttribute("stroke-dasharray", C.toFixed(1));
+  $("gaugeArc").setAttribute("stroke-dashoffset", (C * (1 - rate)).toFixed(1));
+  $("gaugePct").textContent = att ? Math.round(rate*100) + "%" : "—";
+  $("gaugeLegs").innerHTML = [
+    `<div class="leg"><span class="sw" style="background:var(--green)"></span><span class="k">Delivered</span><span class="v">${num(ok)}</span></div>`,
+    `<div class="leg"><span class="sw" style="background:var(--red)"></span><span class="k">Failed</span><span class="v">${num(fail)}</span></div>`,
+    `<div class="leg"><span class="sw" style="background:var(--amber)"></span><span class="k">Rate-limited</span><span class="v">${num(c.rate_limited||0)}</span></div>`,
+  ].join("");
+}
+
+function renderDonut(c) {
+  const keys = (GROUPS.Activity || []).filter(k => k in c);
+  const parts = keys.map(k => ({ k, label: LABELS[k] || k, v: c[k] || 0 })).filter(p => p.v > 0);
+  const total = parts.reduce((s,p) => s + p.v, 0);
+  const svg = $("donut");
+  // clear previous segments (keep the base track circle)
+  [...svg.querySelectorAll(".seg")].forEach(n => n.remove());
+  let off = 25; // start at top
+  parts.forEach((p, i) => {
+    const frac = p.v / total, len = frac * 100;
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ring.setAttribute("class", "seg");
+    ring.setAttribute("cx", "21"); ring.setAttribute("cy", "21"); ring.setAttribute("r", "15.9");
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", COLORS[i % COLORS.length]);
+    ring.setAttribute("stroke-width", "6");
+    ring.setAttribute("stroke-dasharray", `${len.toFixed(2)} ${(100-len).toFixed(2)}`);
+    ring.setAttribute("stroke-dashoffset", off.toFixed(2));
+    ring.style.transition = "stroke-dasharray .6s ease";
+    svg.appendChild(ring);
+    off = (off - len + 100) % 100;
+    p.color = COLORS[i % COLORS.length];
+  });
+  $("donutLegs").innerHTML = total ? parts.map(p =>
+    `<div class="leg"><span class="sw" style="background:${p.color}"></span>`
+    + `<span class="k">${esc(p.label)}</span>`
+    + `<span class="v">${num(p.v)} · ${Math.round(p.v/total*100)}%</span></div>`
+  ).join("") : `<div class="leg skeleton">No activity recorded yet.</div>`;
+}
+
+function renderActivity(c) {
+  const keys = (GROUPS.Activity || []).filter(k => k in c);
+  $("activityStrip").innerHTML = keys.length ? keys.map(k =>
+    `<div class="stat"><div class="n">${num(c[k])}</div><div class="l">${esc(LABELS[k]||k)}</div></div>`
+  ).join("") : `<div class="stat skeleton"><div class="n">—</div><div class="l">No activity yet</div></div>`;
+}
+
+function renderDelivery(c) {
+  const keys = (GROUPS.Downloads || []).filter(k => k in c);
+  const max = Math.max(1, ...keys.map(k => c[k] || 0));
+  const colorFor = k => k === "downloads_ok" ? "linear-gradient(90deg,#3ddc84,#38d6e0)"
+    : (k.includes("failed") || k === "rate_limited") ? "linear-gradient(90deg,#ff5d6c,#f5b54a)"
+    : "linear-gradient(90deg,#6e8bff,#9d7bff)";
+  $("deliveryBars").innerHTML = keys.length ? keys.map(k =>
+    `<div class="bar"><div class="bh"><span class="k">${esc(LABELS[k]||k)}</span><span class="v">${num(c[k])}</span></div>`
+    + `<div class="track"><div class="fill" style="width:${Math.max(2,(c[k]||0)/max*100)}%;background:${colorFor(k)}"></div></div></div>`
+  ).join("") : `<div class="skeleton">No deliveries recorded yet.</div>`;
+
+  $("deliveryStrip").innerHTML = keys.map(k => {
+    const bad = (k.includes("failed") || k === "rate_limited") && (c[k]||0) > 0;
+    const good = k === "downloads_ok" && (c[k]||0) > 0;
+    return `<div class="stat ${bad?"bad":good?"good":""}"><div class="n">${num(c[k])}</div>`
+      + `<div class="l">${esc(LABELS[k]||k)}</div></div>`;
+  }).join("");
+}
+
+function renderLogs(errs) {
+  $("logHint").textContent = `${errs.length} in buffer`;
+  $("logs").innerHTML = errs.length ? errs.map(e =>
+    `<div class="lrow"><span class="t">${fmtTime(e.ts)}</span>`
+    + `<span class="lvl ${esc(e.level)}"><span class="lvl-pill">${esc(e.level)}</span></span>`
+    + `<span class="msg">${esc(e.message)}</span></div>`
+  ).join("") : `<div class="empty"><div class="big">✨</div>No warnings or errors recorded.</div>`;
+}
+
+function renderBuild(y) {
+  $("ytv").textContent = (y && y.version) || "—";
+  $("ytage").textContent = y && y.age_days != null ? `· ${y.age_days}d` + (y.stale ? " · stale" : "") : "";
+  const el = $("banner");
   if (y && y.stale) {
     el.style.display = "block";
     el.innerHTML = `⚠️ <b>yt-dlp ${esc(y.version)}</b> is ${y.age_days} days old — `
-      + `YouTube may stop serving formats. Bump the pin in <code>requirements.txt</code> `
-      + `and rebuild (<code>docker compose up -d --build</code>).`;
-  } else {
-    el.style.display = "none";
-  }
+      + `YouTube may stop serving formats. Bump the pin in <code>requirements.txt</code> and rebuild `
+      + `(<code>docker compose up -d --build</code>).`;
+  } else el.style.display = "none";
 }
 
 function render(d) {
-  renderBanner(d.ytdlp);
-  const cards = document.getElementById("cards");
-  // Highlight cards first (uptime, 24h unique users, yt-dlp build), then counters.
-  const y = d.ytdlp || {};
-  const ytLabel = y.age_days != null ? `yt-dlp · ${y.age_days}d old` : "yt-dlp";
-  const items = [
-    ["Uptime", fmtDur(d.uptime_seconds), false, true],
-    ["Users (24h)", d.unique_users_24h ?? 0, false, true],
-    [ytLabel, y.version ?? "—", !!y.stale, true],
-  ];
   const c = d.counters || {};
-  const order = Object.keys(LABELS).filter(k => k in c)
-    .concat(Object.keys(c).filter(k => !(k in LABELS)));
-  for (const k of order) {
-    const bad = k.includes("failed") || k === "rate_limited";
-    items.push([LABELS[k] || k, c[k], bad && c[k] > 0, false]);
-  }
-  cards.innerHTML = items.map(([l, n, bad, hi]) =>
-    `<div class="card${bad?" bad":""}${hi?" hi":""}"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`
-  ).join("");
+  // feed sparkline history
+  push("downloads_ok", c.downloads_ok || 0);
+  push("users", d.unique_users_24h || 0);
+  push("requests", (c.searches||0)+(c.inline_queries||0)+(c.links_resolved||0)+(c.playlists||0));
 
-  const logs = document.getElementById("logs");
-  const errs = d.errors || [];
-  logs.innerHTML = errs.length ? errs.map(e =>
-    `<div class="row"><span class="t">${fmtTime(e.ts)}</span>`
-    + `<span class="lvl ${esc(e.level)}">${esc(e.level)}</span>`
-    + `<span class="msg">${esc(e.message)}</span></div>`
-  ).join("") : '<div class="empty">No warnings or errors recorded. ✨</div>';
+  renderKPIs(d, c);
+  renderGauge(c);
+  renderDonut(c);
+  renderActivity(c);
+  renderDelivery(c);
+  renderLogs(d.errors || []);
+  renderBuild(d.ytdlp || {});
+}
+
+// scroll-spy for the sidebar nav
+const navLinks = [...document.querySelectorAll("nav a[data-nav]")];
+const sections = navLinks.map(a => $(a.getAttribute("href").slice(1))).filter(Boolean);
+function spy() {
+  let cur = sections[0];
+  for (const s of sections) if (s.getBoundingClientRect().top <= 120) cur = s;
+  navLinks.forEach(a => a.classList.toggle("active", a.getAttribute("href") === "#" + (cur && cur.id)));
+}
+window.addEventListener("scroll", spy, { passive: true });
+
+function setLive(ok, warn) {
+  const cls = ok ? (warn ? "warn" : "") : "bad";
+  for (const id of ["dot","dot2"]) {
+    const el = $(id); el.className = "dot" + (cls ? " " + cls : "");
+  }
+  $("status").textContent = ok ? (warn ? "live · degraded" : "live") : "unreachable";
+  $("clock").textContent = ok ? "updated " + new Date().toLocaleTimeString() : "retrying…";
 }
 
 async function tick() {
-  const dot = document.getElementById("dot"), status = document.getElementById("status");
   try {
-    const r = await fetch("api/stats", {cache: "no-store"});
+    const r = await fetch("api/stats", { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
-    render(await r.json());
-    dot.classList.remove("stale");
-    status.textContent = "live · refreshed " + new Date().toLocaleTimeString();
+    const d = await r.json();
+    render(d);
+    setLive(true, (d.ytdlp && d.ytdlp.stale) || (d.errors && d.errors.length > 0));
   } catch (e) {
-    dot.classList.add("stale");
-    status.textContent = "unreachable — retrying…";
+    setLive(false);
   }
 }
 tick();
