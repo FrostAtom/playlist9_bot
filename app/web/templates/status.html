@@ -327,7 +327,7 @@
     <!-- logs -->
     <section id="logs">
       <div class="shead"><h2>Recent errors &amp; warnings</h2><span class="hint" id="logHint">—</span></div>
-      <div class="panel"><div class="logs" id="logs"></div></div>
+      <div class="panel"><div class="logs" id="logList"></div></div>
     </section>
   </main>
 </div>
@@ -476,7 +476,7 @@ function renderDelivery(c) {
 
 function renderLogs(errs) {
   $("logHint").textContent = `${errs.length} in buffer`;
-  $("logs").innerHTML = errs.length ? errs.map(e =>
+  $("logList").innerHTML = errs.length ? errs.map(e =>
     `<div class="lrow"><span class="t">${fmtTime(e.ts)}</span>`
     + `<span class="lvl ${esc(e.level)}"><span class="lvl-pill">${esc(e.level)}</span></span>`
     + `<span class="msg">${esc(e.message)}</span></div>`
