@@ -45,6 +45,15 @@ class AudioSource(ABC):
         Sources that can't enumerate playlists return ``([], None)``."""
         return [], None
 
+    async def resolve_track(self, url: str) -> Optional[Track]:
+        """Introspect a single-track ``url`` into a :class:`Track` (title,
+        uploader, duration) without downloading, or None when it can't.
+
+        Used by inline mode to show a pasted track link with a real title; the
+        URL can still be downloaded as a raw string via ``MusicService.download``
+        even when this returns None."""
+        return None
+
     @abstractmethod
     async def search(self, query: str, limit: int) -> List[Track]:
         """Search the source and return up to ``limit`` tracks."""

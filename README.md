@@ -1,9 +1,9 @@
 # 🎵 Music Downloader Bot
 
 A Telegram bot that searches and downloads music from multiple sources and sends
-it as a tagged MP3 (up to 320 kbps, with cover art and metadata). Built with
-[aiogram](https://github.com/aiogram/aiogram) 3, powered by `yt-dlp` + `ffmpeg`,
-and shipped as a Docker image.
+it as a tagged MP3 (up to 320 kbps, with cover art and metadata) — and also grabs
+TikTok clips as video. Built with [aiogram](https://github.com/aiogram/aiogram)
+3, powered by `yt-dlp` + `ffmpeg`, and shipped as a Docker image.
 
 [![Telegram](https://img.shields.io/badge/Telegram-%40atomsdungeon__bot-26A5E4?logo=telegram&logoColor=white)](https://t.me/atomsdungeon_bot)
 [![Python](https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white)](https://www.python.org/)
@@ -22,11 +22,15 @@ open the chat, send a track name, and pick a result.
 - **Inline mode** — type `@atomsdungeon_bot query` in any chat to search and
   send the **track as a file**: cached tracks are sent instantly, new ones are
   downloaded on selection and the placeholder is replaced with the audio
-  (requires `STORAGE_CHAT_ID`, see below).
+  (requires `STORAGE_CHAT_ID`, see below). You can also **paste a link** there —
+  a track, a playlist/album, or a TikTok clip — and it's handled just like in
+  chat.
 - **Download by link** — `youtube.com`, `youtu.be`, `music.youtube.com`,
   `soundcloud.com`. **Spotify** and **Apple Music** track links are also
   accepted: the bot reads the artist + title and finds a match on YouTube Music
   (those platforms are DRM-protected and can't be downloaded directly).
+- **TikTok videos** — paste a TikTok link (`tiktok.com`, `vm.`/`vt.tiktok.com`)
+  and the bot sends the clip back as a video (works in chat and inline).
 - **Playlist & album links** — paste a YouTube/SoundCloud playlist, or a
   Spotify/Apple Music playlist *or album*, and the bot lists its tracks (up to
   100) as paginated buttons to download one by one. A link that is *both* a
@@ -46,8 +50,9 @@ open the chat, send a track name, and pick a result.
 - **Concurrency & rate limits** — up to 3 simultaneous downloads per user and 8
   in total (extra requests are queued with a notice), plus a cap of 10 downloads
   per user per minute.
-- **Cookies support** — point yt-dlp at a `cookies.txt` for age-restricted or
-  region-locked content (see below).
+- **Cookies support** — point yt-dlp at a single `cookies.txt` for age-restricted
+  or region-locked content on any supported site (YouTube, SoundCloud, TikTok);
+  see below.
 - **Resilient downloads** — transient network/extractor failures are retried
   with backoff before giving up.
 - **Ephemeral chat** — your query message is deleted immediately and the
@@ -125,16 +130,17 @@ CasaOS and friends). Only `TELEGRAM_BOT_TOKEN` is required (get one from
 | `AUDIO_QUALITY` | `320` | MP3 quality in kbps (best source, up to 320). |
 | `INLINE_RESULTS` | `20` | Results fetched for an inline query. |
 | `RATE_PER_MINUTE` | `10` | Max downloads a single user may trigger per minute. |
-| `COOKIES_FILE` | — | Path to a `cookies.txt` inside the container; see [Cookies](#-cookies-age-restricted--region-locked-content). |
+| `COOKIES_FILE` | — | Path to a single `cookies.txt` inside the container, used for every yt-dlp site (YouTube, SoundCloud, TikTok); see [Cookies](#-cookies-age-restricted--region-locked-content). |
 | `METRICS_PORT` | `8473` | Port for the built-in status page; `0` disables the HTTP server. |
 | `METRICS_HOST` | `0.0.0.0` | Bind address for the status page inside the container. |
 
 ## 💬 Usage
 
 1. Open the bot, send `/start`.
-2. Send a track name, or paste a link (YouTube, SoundCloud, Spotify, Apple Music).
-3. Get an MP3 back. Your query and the search results clean themselves up; only
-   the delivered tracks stay.
+2. Send a track name, or paste a link (YouTube, SoundCloud, Spotify, Apple Music,
+   or TikTok).
+3. Get an MP3 back (or the video, for TikTok). Your query and the search results
+   clean themselves up; only the delivered files stay.
 
 ### Inline mode setup
 
@@ -151,15 +157,18 @@ files and falls back to a link for new ones.
 
 ## 🍪 Cookies (age-restricted / region-locked content)
 
-Some tracks won't download without a logged-in session (age-gated videos,
-region-locked or "sign in to confirm" content). You can hand yt-dlp your browser
-cookies to get past that:
+Some content won't download without a logged-in session (age-gated videos,
+region-locked or "sign in to confirm" content, some TikToks). You can hand yt-dlp
+your browser cookies to get past that. **One `cookies.txt` covers every site** —
+yt-dlp automatically uses the cookies matching each request's domain (YouTube,
+SoundCloud, TikTok, …), so you can export from several sites into the same file.
 
 1. Install a cookies exporter extension — e.g. **"Get cookies.txt LOCALLY"**
    ([Chrome](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc))
    — it exports in the Netscape `cookies.txt` format yt-dlp expects.
-2. Log in to YouTube in your browser, open the exporter **on a `youtube.com`
-   tab**, and export. Save the file as `cookies.txt`.
+2. Log in to the site in your browser (e.g. YouTube and/or TikTok), open the
+   exporter **on that site's tab**, and export. Save (or concatenate) the
+   entries into a single `cookies.txt`.
 3. Drop it into the `cookies/` folder next to `docker-compose.yml` (it's mounted
    into the container at `/cookies`), and set in the bot's `environment:`:
 
@@ -184,6 +193,9 @@ cookies to get past that:
 - **Spotify / Apple Music** links can't be downloaded directly (DRM), so the bot
   reads the track's artist + title from the page's Open Graph tags and searches
   YouTube Music for a match — no API keys required.
+- **TikTok** links are downloaded as the original MP4 (no audio extraction) via
+  the same shared `yt-dlp` primitive (`download_media`) the audio sources use, so
+  cookies, retries and thumbnail handling are identical — and sent as a video.
 - **Delivered `file_id`s** are stored in PostgreSQL, so the same track re-sends
   instantly later (and inline mode serves it as playable audio) without a
   re-download.
@@ -199,22 +211,24 @@ healthcheck.py                  — Docker HEALTHCHECK script (checks the heartb
 app/
   config.py                     — settings from environment (Settings)
   application.py                — Dispatcher/Bot wiring, polling, graceful shutdown
-  models.py                     — shared domain models (Track, Meta, AudioFile)
+  models.py                     — shared domain models (Track, Meta, AudioFile, VideoFile)
   music/
     service.py                  — MusicService: search + download routing
     links.py                    — Spotify / Apple Music link, playlist & album scraping
+    video.py                    — TikTok link detect + video (MP4) download
     metadata.py                 — filename cleanup, ID3 tags, cover + thumbnail
     metadata_provider.py        — album/cover enrichment (MusicBrainz / Cover Art Archive)
     sources/base.py             — AudioSource abstraction (extension seam)
-    sources/ytdlp.py            — shared yt-dlp base (download, retries, playlists, cookies)
+    sources/ytdlp.py            — shared yt-dlp primitive (download_media: cookies, retries, thumbnail) + audio base
     sources/youtube.py          — YouTube Music (search via ytmusicapi)
     sources/soundcloud.py       — SoundCloud (scsearch)
   bot/
     router.py                   — aiogram router (thin: parse updates, dispatch)
-    delivery.py                 — download → validate → send pipeline
+    delivery.py                 — download → validate → send pipeline (audio + video)
+    inline.py                   — inline-mode: classify query/link → results → file_id
     formatting.py               — result/playlist messages + inline keyboards
     messages.py                 — all user-facing text in one place
-    caches.py                   — in-memory state (searches, inline tracks, links)
+    caches.py                   — in-memory state (searches, inline payloads, links)
     deps.py                     — Deps: the dependency bundle handlers close over
     telegram.py                 — error-tolerant aiogram call wrappers
   infra/
@@ -233,7 +247,7 @@ app/
 ## 🛠️ Tech stack & dependencies
 
 - [**aiogram**](https://github.com/aiogram/aiogram) `3.15.0` — async Telegram Bot framework
-- [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) `2026.6.9` — audio downloading
+- [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) `2026.6.9` — audio + video downloading
 - [**ytmusicapi**](https://github.com/sigma67/ytmusicapi) `1.12.1` — YouTube Music search (keyless)
 - [**mutagen**](https://github.com/quodlibet/mutagen) `1.47.0` — ID3 tagging
 - [**Pillow**](https://github.com/python-pillow/Pillow) `11.0.0` — thumbnail generation

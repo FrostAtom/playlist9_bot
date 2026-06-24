@@ -57,6 +57,14 @@ class MusicService:
                 return source, url
         return None
 
+    async def resolve_track(self, text: str) -> Optional[Track]:
+        """Introspect a recognized single-track URL into a :class:`Track`, or None."""
+        match = self.resolve(text)
+        if not match:
+            return None
+        source, url = match
+        return await source.resolve_track(url)
+
     def link_info(self, text: str) -> Optional[LinkInfo]:
         """Classify a recognized link as a track and/or playlist, or None."""
         for source in self._sources:
@@ -82,6 +90,13 @@ class MusicService:
     async def download(self, ref: Union[Track, str], workdir: str) -> AudioFile:
         """Download a picked :class:`Track` (with metadata) or a raw URL."""
         if isinstance(ref, Track):
+            # A playlist item with only a search query (Spotify/Apple) carries no
+            # direct URL — find the concrete track on its source first.
+            if not ref.url and ref.query:
+                matches = await self.search(ref.query, 1, ref.source)
+                if not matches:
+                    raise RuntimeError(f"No match found for {ref.query!r}")
+                ref = matches[0]
             source = self._by_name.get(ref.source)
             url = ref.url
             if source is None:

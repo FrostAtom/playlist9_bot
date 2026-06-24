@@ -9,22 +9,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .caches import LinkCache, SearchCache, TrackCache
+from .caches import InlineCache, LinkCache, SearchCache
 from ..config import Settings
 from ..infra.limiter import DownloadLimiter, RateLimiter
 from ..infra.store import FileIdStore
 from ..music.service import MusicService
+from ..music.video import VideoDownloader
 
 
 @dataclass
 class Deps:
     settings: Settings
     service: MusicService
+    video: VideoDownloader
     limiter: DownloadLimiter
     rate: RateLimiter
     cache: SearchCache
     files: FileIdStore
-    inline: TrackCache
+    inline: InlineCache
     links: LinkCache
     # Resolved from the running bot at startup (bot.get_me); used for the inline
     # attribution links. Set by application.py before any update is processed.

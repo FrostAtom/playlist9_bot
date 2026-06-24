@@ -27,16 +27,15 @@ _PERMANENT_ERROR = re.compile(
 )
 
 
-def extract_audio(
-    url: str, workdir: str, quality: str, cookiefile: Optional[str] = None
-) -> dict:
-    """Download ``url`` as an MP3 into ``workdir``; return the yt-dlp info dict.
+# Normalize any downloaded thumbnail to JPEG (sites often serve webp, which can't
+# be embedded as an MP3 cover and isn't a Telegram-friendly video thumb). Shared
+# by audio and video downloads.
+THUMBNAIL_TO_JPG = {"key": "FFmpegThumbnailsConvertor", "format": "jpg"}
 
-    A ``ytsearchN:`` / ``scsearchN:`` query also works as ``url`` when a source
-    needs to resolve audio from a search rather than a direct link.
-    """
+
+def _base_opts(workdir: str, cookiefile: Optional[str]) -> dict:
+    """yt-dlp options common to every download (audio and video)."""
     opts = {
-        "format": "bestaudio/best",
         "outtmpl": os.path.join(workdir, "%(title).150s.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
@@ -47,6 +46,60 @@ def extract_audio(
         "fragment_retries": 3,
         "extractor_retries": 2,
         "socket_timeout": 30,
+    }
+    # A single cookies.txt (COOKIES_FILE) serves every site — yt-dlp picks the
+    # cookies matching each request's domain (YouTube, SoundCloud, TikTok, …).
+    if cookiefile and os.path.exists(cookiefile):
+        opts["cookiefile"] = cookiefile
+    return opts
+
+
+def download_media(
+    url: str,
+    workdir: str,
+    *,
+    cookiefile: Optional[str] = None,
+    attempts: int = 3,
+    **extra_opts,
+) -> dict:
+    """Download ``url`` into ``workdir`` via yt-dlp; return the info dict.
+
+    The single download primitive shared by the audio sources and the video
+    downloader: it layers the per-call ``extra_opts`` (``format``,
+    ``postprocessors``, ``merge_output_format``, …) onto the common base options,
+    applies cookies, and retries transient failures with exponential backoff. The
+    work dir is wiped between attempts so a half-written file from a failed try
+    can't be picked up as the result. A ``ytsearchN:`` / ``scsearchN:`` query also
+    works as ``url`` when resolving audio from a search rather than a direct link.
+    """
+    opts = _base_opts(workdir, cookiefile)
+    opts.update(extra_opts)
+    delay = 2.0
+    for attempt in range(1, attempts + 1):
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=True)
+        except yt_dlp.utils.DownloadError as exc:
+            if attempt >= attempts or _PERMANENT_ERROR.search(str(exc)):
+                raise
+            logger.warning(
+                "Download attempt %d/%d failed (%s); retrying in %.0fs",
+                attempt,
+                attempts,
+                exc,
+                delay,
+            )
+            _clear_dir(workdir)
+            time.sleep(delay)
+            delay *= 2
+    # Unreachable: the loop either returns or raises.
+    raise RuntimeError("retry loop exhausted")
+
+
+def _audio_opts(quality: str) -> dict:
+    """Per-call yt-dlp options for an MP3 download at ``quality`` kbps."""
+    return {
+        "format": "bestaudio/best",
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -54,16 +107,10 @@ def extract_audio(
                 "preferredquality": quality,
             },
             {"key": "FFmpegMetadata", "add_metadata": True},
-            # Normalize the thumbnail to JPEG (YouTube often serves webp, which
-            # can't be embedded as an MP3 cover). Embedding is done in
-            # metadata.finalize_* with mutagen for reliability.
-            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+            # Embedding the cover is done in metadata.finalize_* with mutagen.
+            THUMBNAIL_TO_JPG,
         ],
     }
-    if cookiefile and os.path.exists(cookiefile):
-        opts["cookiefile"] = cookiefile
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        return ydl.extract_info(url, download=True)
 
 
 class YtDlpSource(AudioSource):
@@ -106,7 +153,45 @@ class YtDlpSource(AudioSource):
     ) -> AudioFile:
         return await asyncio.to_thread(self._download, url, workdir, meta)
 
+    async def resolve_track(self, url: str) -> Optional[Track]:
+        return await asyncio.to_thread(self._resolve_track, url)
+
     # --- blocking implementations (run in a worker thread) ---------------
+
+    def _resolve_track(self, url: str) -> Optional[Track]:
+        """Metadata-only extract (no download) to turn a URL into a Track."""
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "skip_download": True,
+        }
+        if self._cookiefile and os.path.exists(self._cookiefile):
+            opts["cookiefile"] = self._cookiefile
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError:
+            logger.warning("Could not resolve track URL %s", url, exc_info=True)
+            return None
+        if not info:
+            return None
+        # A link that's actually a playlist yields entries; take the first track.
+        if info.get("entries"):
+            entries = [e for e in info["entries"] if e]
+            info = entries[0] if entries else {}
+        video_id = info.get("id")
+        if not video_id:
+            return None
+        duration = info.get("duration")
+        return Track(
+            id=str(video_id),
+            title=info.get("track") or info.get("title") or "Untitled",
+            url=info.get("webpage_url") or url,
+            uploader=info.get("artist") or info.get("uploader") or info.get("channel"),
+            duration=int(duration) if duration is not None else None,
+            source=self.name,
+        )
 
     def _search(self, query: str, limit: int) -> List[Track]:
         opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
@@ -168,7 +253,9 @@ class YtDlpSource(AudioSource):
     def _download(
         self, url: str, workdir: str, meta: Optional[Meta] = None
     ) -> AudioFile:
-        info = self._extract_with_retry(url, workdir)
+        info = download_media(
+            url, workdir, cookiefile=self._cookiefile, **_audio_opts(self._quality)
+        )
         if meta:
             album, cover_url = meta.album, meta.cover_url
             if not album or not cover_url:
@@ -182,34 +269,6 @@ class YtDlpSource(AudioSource):
                 cover_bytes=fetch_image(cover_url),
             )
         return finalize_download(workdir, info)
-
-    def _extract_with_retry(
-        self, url: str, workdir: str, attempts: int = 3
-    ) -> dict:
-        """Run :func:`extract_audio`, retrying transient failures with backoff.
-
-        The work dir is wiped between attempts so a half-written file from a
-        failed try can't be picked up as the result.
-        """
-        delay = 2.0
-        for attempt in range(1, attempts + 1):
-            try:
-                return extract_audio(url, workdir, self._quality, self._cookiefile)
-            except yt_dlp.utils.DownloadError as exc:
-                if attempt >= attempts or _PERMANENT_ERROR.search(str(exc)):
-                    raise
-                logger.warning(
-                    "Download attempt %d/%d failed (%s); retrying in %.0fs",
-                    attempt,
-                    attempts,
-                    exc,
-                    delay,
-                )
-                _clear_dir(workdir)
-                time.sleep(delay)
-                delay *= 2
-        # Unreachable: the loop either returns or raises.
-        raise RuntimeError("retry loop exhausted")
 
 
 def _clear_dir(workdir: str) -> None:

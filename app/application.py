@@ -6,7 +6,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 
-from .bot.caches import LinkCache, SearchCache, TrackCache
+from .bot.caches import InlineCache, LinkCache, SearchCache
 from .bot.deps import Deps
 from .bot.router import build_router
 from .config import Settings
@@ -18,6 +18,7 @@ from .infra.store import FileIdStore
 from .music.service import MusicService
 from .music.sources.soundcloud import SoundCloudSource
 from .music.sources.youtube import YouTubeMusicSource
+from .music.video import VideoDownloader
 from .web.server import start_web_server
 
 logger = logging.getLogger(__name__)
@@ -56,13 +57,14 @@ async def _amain(settings: Settings) -> None:
     deps = Deps(
         settings=settings,
         service=build_service(settings),
+        video=VideoDownloader(cookiefile=settings.cookies_file or None),
         limiter=DownloadLimiter(
             per_user=settings.download_per_user, total=settings.download_total
         ),
         rate=RateLimiter(settings.rate_per_minute, 60.0),
         cache=SearchCache(settings.search_cache_size),
         files=FileIdStore(pool),
-        inline=TrackCache(),
+        inline=InlineCache(),
         links=LinkCache(settings.search_cache_size),
     )
     dispatcher.include_router(build_router(deps))

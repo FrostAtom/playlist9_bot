@@ -12,28 +12,22 @@ from typing import Optional, Tuple
 
 from aiogram import BaseMiddleware, Bot, F, Router
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import (
     CallbackQuery,
     ChosenInlineResult,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
     InlineQuery,
-    InlineQueryResultArticle,
-    InlineQueryResultCachedAudio,
-    InputMediaAudio,
-    InputTextMessageContent,
     Message,
 )
 
-from . import delivery, formatting, messages
+from . import delivery, formatting, inline, messages
 from .caches import QUERY_PLAYLIST, URL_PLAYLIST, PendingLink, SearchState
 from .deps import Deps
-from .telegram import delete_after, safe_delete, safe_edit, safe_inline_edit
+from .telegram import delete_after, safe_delete, safe_edit
 from ..infra.metrics import metrics
 from ..models import Track
 from ..music import links
+from ..music.video import detect_tiktok
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +180,20 @@ def build_router(deps: Deps) -> Router:
                 )
             )
             delete_after(notice, 15)
+
+        # A TikTok link: download the clip and send it back as a video (not the
+        # MP3 audio pipeline). Checked before search since it's a direct link.
+        tiktok_url = detect_tiktok(text)
+        if tiktok_url:
+            if not deps.rate.allow(user_id):
+                await _rate_notice()
+                return
+            metrics.incr("tiktok_videos")
+            status = await message.answer(messages.DOWNLOADING_VIDEO)
+            await delivery.deliver_video(
+                deps, message.chat.id, user_id, tiktok_url, status
+            )
+            return
 
         # A YouTube/SoundCloud link: a single track, a playlist, or a track that
         # lives inside a playlist (ambiguous) — then we ask which they meant.
@@ -411,92 +419,13 @@ def build_router(deps: Deps) -> Router:
         )
 
     @router.inline_query()
-    async def inline(query: InlineQuery) -> None:
-        text = query.query.strip()
-        if not text:
-            await query.answer([], cache_time=5, is_personal=True)
-            return
-
-        metrics.incr("inline_queries")
-        limit = deps.settings.inline_results
-        source = deps.service.default_source()
-        try:
-            tracks = await deps.service.search(text, limit, source)
-        except Exception:  # noqa: BLE001
-            logger.exception("Inline search failed")
-            await query.answer([], cache_time=5)
-            return
-
-        # One round-trip to resolve which results are already on Telegram.
-        keys = [deps.files.key(t.source, t.id) for t in tracks[:limit]]
-        cached = await deps.files.get_many(keys)
-        results = []
-        for track in tracks[:limit]:
-            key = deps.files.key(track.source, track.id)
-            title = formatting.display_title(track)
-            file_id = cached.get(key)
-            if file_id:
-                # Already on Telegram's servers — send it as playable audio.
-                results.append(
-                    InlineQueryResultCachedAudio(id=key, audio_file_id=file_id)
-                )
-                continue
-            # Offer a placeholder; the file is downloaded once the user picks it
-            # (handled in chosen_inline_result). A keyboard is required so that
-            # Telegram returns an inline_message_id we can edit into audio.
-            deps.inline.put(key, track)
-            results.append(
-                InlineQueryResultArticle(
-                    id=key,
-                    title=title,
-                    description=track.album or formatting.SOURCE_NAMES.get(track.source, ""),
-                    thumbnail_url=track.cover_url,
-                    input_message_content=InputTextMessageContent(
-                        message_text=f"🎵 {title}\n⏳ Downloading…"
-                    ),
-                    reply_markup=InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [
-                                InlineKeyboardButton(
-                                    text="⏳ Downloading…",
-                                    url=f"https://t.me/{deps.bot_username}",
-                                )
-                            ]
-                        ]
-                    ),
-                )
-            )
-        # cache_time=0: results depend on per-track cache state, don't cache.
-        await query.answer(results, cache_time=0, is_personal=True)
+    async def on_inline(query: InlineQuery) -> None:
+        # Inline accepts a search OR a pasted track/playlist/TikTok link; the
+        # classification + result building lives in the inline module.
+        await inline.answer(deps, query)
 
     @router.chosen_inline_result()
     async def on_chosen(chosen: ChosenInlineResult, bot: Bot) -> None:
-        inline_message_id = chosen.inline_message_id
-        if not inline_message_id:
-            return  # cached-audio results need no follow-up
-        track = deps.inline.get(chosen.result_id)
-        if track is None:
-            await safe_inline_edit(bot, inline_message_id, messages.RESULTS_EXPIRED)
-            return
-
-        file_id = await delivery.ensure_file_id(
-            deps, bot, track, inline_message_id, chosen.from_user.id
-        )
-        if not file_id:
-            return
-
-        title = formatting.display_title(track)
-        try:
-            await bot.edit_message_media(
-                media=InputMediaAudio(
-                    media=file_id,
-                    title=track.title,
-                    performer=track.uploader,
-                ),
-                inline_message_id=inline_message_id,
-            )
-        except TelegramBadRequest:
-            logger.exception("Failed to embed inline audio")
-            await safe_inline_edit(bot, inline_message_id, f"🎵 {title}\n{track.url}")
+        await inline.handle_chosen(deps, bot, chosen)
 
     return router

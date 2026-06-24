@@ -46,6 +46,15 @@ class PendingLink:
     playlist_url: str
 
 
+@dataclass(frozen=True)
+class InlineRef:
+    """The payload behind a pending inline result, looked up when the user picks
+    it: either a downloadable :class:`Track` (audio) or a TikTok video URL."""
+
+    track: Optional[Track] = None
+    tiktok_url: Optional[str] = None
+
+
 class SearchCache:
     """Per-user store of recent searches, keyed by results message id."""
 
@@ -81,19 +90,19 @@ class LinkCache:
         return self._data.get(user_id, {}).get(token)
 
 
-class TrackCache:
-    """Short-lived store of tracks offered inline, keyed by inline result id,
+class InlineCache:
+    """Short-lived store of payloads offered inline, keyed by inline result id,
     so a chosen result can be downloaded and delivered."""
 
     def __init__(self, capacity: int = 1000) -> None:
         self._cap = capacity
-        self._data: "OrderedDict[str, Track]" = OrderedDict()
+        self._data: "OrderedDict[str, InlineRef]" = OrderedDict()
 
-    def put(self, key: str, track: Track) -> None:
-        self._data[key] = track
+    def put(self, key: str, ref: InlineRef) -> None:
+        self._data[key] = ref
         self._data.move_to_end(key)
         while len(self._data) > self._cap:
             self._data.popitem(last=False)
 
-    def get(self, key: str) -> Optional[Track]:
+    def get(self, key: str) -> Optional[InlineRef]:
         return self._data.get(key)

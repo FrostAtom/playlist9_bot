@@ -57,3 +57,28 @@ class AudioFile:
     @property
     def filename(self) -> str:
         return os.path.basename(self.path)
+
+
+@dataclass(frozen=True)
+class VideoFile:
+    """A downloaded video file (e.g. a TikTok clip) ready to be sent."""
+
+    path: str
+    title: Optional[str] = None
+    uploader: Optional[str] = None
+    duration: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    thumb_path: Optional[str] = None
+
+    @property
+    def exists(self) -> bool:
+        return bool(self.path) and os.path.exists(self.path)
+
+    @property
+    def size(self) -> int:
+        return os.path.getsize(self.path) if self.exists else 0
+
+    @property
+    def filename(self) -> str:
+        return os.path.basename(self.path)

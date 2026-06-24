@@ -9,12 +9,15 @@ WELCOME = (
     "Music links are matched on YouTube Music.\n"
     "• Send a *playlist or album link* — grab the tracks one by one "
     "(YouTube, SoundCloud, Spotify, Apple Music).\n"
-    "• In any chat, type `@bot_name query` for inline search.\n\n"
+    "• Send a *TikTok link* — I'll send back the video 🎬\n"
+    "• In any chat, type `@bot_name query` for inline search — or paste a "
+    "*track, playlist or TikTok link* there too.\n\n"
     "Files arrive at up to 320 kbps with cover art and clean tags.\n\n"
     "📂 [Source on GitHub](https://github.com/FrostAtom/playlist9_bot)"
 )
 
 DOWNLOADING = "⏳ Downloading audio, please wait..."
+DOWNLOADING_VIDEO = "⏳ Downloading the video, please wait..."
 DOWNLOADING_CHOICE = "⏳ Downloading the selected track, please wait..."
 RESOLVING_LINK = "🔗 Reading the link..."
 LOADING_PLAYLIST = "📋 Reading the playlist..."
@@ -27,10 +30,15 @@ BTN_WHOLE_PLAYLIST = "📋 The whole playlist"
 QUEUED = "⏳ Queued — the concurrent download limit has been reached..."
 UPLOADING = "📤 Uploading the file..."
 NO_AUDIO = "❌ Could not extract audio from the link."
+NO_VIDEO = "❌ Could not download a video from that link."
 NOT_FOUND = "Nothing found 😔 Try a different query."
 LINK_FAILED = "❌ Couldn't read that link. Try sending the track name instead."
 RESULTS_EXPIRED = "Results expired, please search again 🔁"
 SEARCH_ERROR = "Search error, please try again 🔁"
+
+# Inline placeholder shown for a pasted TikTok link (before the clip downloads).
+INLINE_TIKTOK_TITLE = "🎬 TikTok video"
+INLINE_TIKTOK_DESC = "Tap to download and send the clip"
 
 
 def link_not_found(provider: str) -> str:

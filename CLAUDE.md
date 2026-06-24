@@ -60,17 +60,19 @@ app/
     links.py                 — Spotify/Apple link & playlist/album scraping
     metadata.py              — filename cleanup, ID3 tags, cover + thumbnail
     metadata_provider.py     — album/cover enrichment (MusicBrainz / Cover Art Archive)
+    video.py                 — TikTok link detect + video (MP4) download (yt-dlp)
     sources/
       base.py                — AudioSource abstraction (extension seam)
-      ytdlp.py               — shared yt-dlp base (download, retries, playlists, cookies)
+      ytdlp.py               — shared yt-dlp primitive `download_media` (cookies, retries, thumbnail) + audio source base
       youtube.py             — YouTube Music (search via ytmusicapi)
       soundcloud.py          — SoundCloud (scsearch)
   bot/                       — aiogram presentation layer
     router.py                — build_router: thin handlers + activity middleware
-    delivery.py              — download → validate → send pipeline
+    delivery.py              — download → validate → send pipeline (audio + video)
+    inline.py                — inline-mode: classify query/link → results → file_id
     formatting.py            — result/playlist messages + inline keyboards
     messages.py              — all user-facing text
-    caches.py                — in-memory state (SearchCache, TrackCache, LinkCache)
+    caches.py                — in-memory state (SearchCache, InlineCache, LinkCache)
     deps.py                  — Deps: the dependency bundle handlers close over
     telegram.py              — error-tolerant aiogram call wrappers
   infra/                     — cross-cutting infrastructure
@@ -93,6 +95,16 @@ app/
 - **`MusicService`** (`music/service.py`) is the facade: `search(query, limit,
   source)` hits one source; `download(ref)` accepts a `Track` or a raw URL;
   `resolve`/`link_info` classify a pasted URL; `playlist` enumerates one.
+- **TikTok video** (`music/video.py`) is a deliberately *separate* path from the
+  audio engine: a TikTok link is a video, so extracting MP3 would be wrong.
+  `detect_tiktok` recognizes the link in `on_text` (before search), and
+  `VideoDownloader.download` fetches the original clip as a single MP4 via the
+  same shared `download_media` primitive the audio sources use (so cookies,
+  retries and thumbnail handling are unified) — it just passes a video `format`
+  and no audio postprocessing. It's delivered by `bot/delivery.deliver_video`
+  (`send_video`, not `send_audio`) and never touches `MusicService`,
+  `FileIdStore`, or the ID3/metadata pipeline. `VideoDownloader` is held on
+  `Deps.video` and built in `build_service`'s caller (`_amain`).
 - **External links** (`music/links.py`) recognize Spotify / Apple Music track,
   playlist and album URLs and scrape artist+title (keyless). For a single track
   `on_text` searches YouTube Music and auto-downloads the top match; playlists/
@@ -137,23 +149,37 @@ app/
   auto-deletes after `RESULTS_TTL` (5 min) via `_delete_after` (a fire-and-forget
   `asyncio.create_task`). Delivered audio is never deleted. Inline mode deletes
   nothing — it only searches and sends.
-- **Inline mode** can only send a file via a `file_id`, which can't be produced
-  during the inline query. So: cached tracks (`FileIdStore`, keyed
+- **Inline mode** (`bot/inline.py`) accepts the same inputs as `on_text`: a plain
+  search *or* a pasted link — a YouTube/SoundCloud track or playlist, a
+  Spotify/Apple track or playlist/album, or a TikTok clip. `_resolve_tracks`
+  classifies the query (mirroring `on_text`) and collapses everything except
+  TikTok to a list of `Track`s (a single pasted track URL goes through
+  `MusicService.resolve_track`, a metadata-only yt-dlp extract); TikTok is its
+  own video result. Inline can only send a file via a `file_id`, which can't be
+  produced during the inline query. So: cached tracks (`FileIdStore`, keyed
   `source:id`, populated on every successful send) are returned as
-  `InlineQueryResultCachedAudio` immediately; uncached tracks return an article
-  placeholder, and `chosen_inline_result` downloads → uploads to
-  `STORAGE_CHAT_ID` to mint a `file_id` → `edit_message_media` swaps the
-  placeholder for audio. This requires, in @BotFather, **`/setinline`** and
-  **`/setinlinefeedback` enabled** (without feedback no `chosen_inline_result`
-  arrives), plus the bot added as **admin to the storage chat** (startup logs a
-  warning if it's unreachable).
+  `InlineQueryResultCachedAudio` immediately; everything else returns an article
+  placeholder whose payload (`InlineRef`: a `Track` or a TikTok URL) is stashed in
+  `InlineCache` keyed by the result id, and `chosen_inline_result` downloads →
+  uploads to `STORAGE_CHAT_ID` to mint a `file_id` → `edit_message_media` swaps
+  the placeholder for audio (`ensure_file_id`) or video (`ensure_video_file_id`).
+  Result ids double as the cache key: real tracks use the stable `source:id`;
+  synthetic items (Spotify/Apple playlist picks, which have no direct URL — they
+  carry a `query` resolved at download time) and TikTok URLs use a content hash,
+  so they stay unique within an answer and aren't persistently cached (a
+  query-track's id would otherwise collide across playlists). This requires, in
+  @BotFather, **`/setinline`** and **`/setinlinefeedback` enabled** (without
+  feedback no `chosen_inline_result` arrives), plus the bot added as **admin to
+  the storage chat** (startup logs a warning if it's unreachable). Video file_ids
+  aren't persisted — TikTok links are one-off, so the storage round-trip repeats.
 
 ## Gotchas
 
 - **Keep `yt-dlp` current.** YouTube periodically breaks older versions
   (symptoms: "No video formats found"). Bump the pin in `requirements.txt`.
-  `_extract_with_retry` retries transient failures with backoff but won't fix a
-  stale yt-dlp (errors matching `_PERMANENT_ERROR` aren't retried).
+  `download_media` (the shared yt-dlp primitive in `sources/ytdlp.py`) retries
+  transient failures with backoff but won't fix a stale yt-dlp (errors matching
+  `_PERMANENT_ERROR` aren't retried).
 - aiogram's `send_audio` `duration` must be `int`; SoundCloud reports floats.
   `metadata._finalize` already coerces — keep it that way.
 - The bot's `@username` (used for inline attribution links) is resolved at
