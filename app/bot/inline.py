@@ -46,6 +46,12 @@ logger = logging.getLogger(__name__)
 
 async def answer(deps: Deps, query: InlineQuery) -> None:
     """Resolve an inline query (text or link) and answer with inline results."""
+    # Inline mode is meant for *other* chats. In the bot's own chat the user can
+    # just send a message, so suppress inline results there (chat_type "sender").
+    if query.chat_type == "sender":
+        await query.answer([], cache_time=300, is_personal=True)
+        return
+
     text = query.query.strip()
     if not text:
         await query.answer([], cache_time=5, is_personal=True)
@@ -231,6 +237,21 @@ def _short_hash(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
 
 
+# Telegram returns one of these when the inline message no longer exists — the
+# user deleted it after picking the placeholder. We treat that as a cancellation
+# (silent no-op) rather than an error: there's nothing left to edit.
+_DELETED_MARKERS = (
+    "message_id_invalid",
+    "message to edit not found",
+    "message can't be edited",
+)
+
+
+def _message_deleted(exc: TelegramBadRequest) -> bool:
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _DELETED_MARKERS)
+
+
 # --- chosen-result completion --------------------------------------------
 
 
@@ -252,7 +273,9 @@ async def _finish_audio(
             ),
             inline_message_id=inline_message_id,
         )
-    except TelegramBadRequest:
+    except TelegramBadRequest as exc:
+        if _message_deleted(exc):
+            return  # user deleted the inline message — request cancelled
         logger.exception("Failed to embed inline audio")
         await safe_inline_edit(bot, inline_message_id, f"🎵 {title}\n{track.url}")
 
@@ -271,6 +294,8 @@ async def _finish_video(
             media=InputMediaVideo(media=file_id),
             inline_message_id=inline_message_id,
         )
-    except TelegramBadRequest:
+    except TelegramBadRequest as exc:
+        if _message_deleted(exc):
+            return  # user deleted the inline message — request cancelled
         logger.exception("Failed to embed inline video")
         await safe_inline_edit(bot, inline_message_id, f"🎬 {url}")
