@@ -1,10 +1,12 @@
 # 🎵 Music Downloader Bot
 
-A Telegram bot that searches and downloads music from multiple sources and sends
-it as a tagged MP3 (up to 320 kbps, with cover art and metadata) — and also grabs
-TikTok clips as video. Built with [aiogram](https://github.com/aiogram/aiogram)
-3, powered by `yt-dlp` + `ffmpeg`, and shipped as a Docker image.
+A Telegram bot **and web app** that searches and downloads music from multiple
+sources and sends it as a tagged MP3 (up to 320 kbps, with cover art and
+metadata) — the bot also grabs TikTok clips as video. Built with
+[aiogram](https://github.com/aiogram/aiogram) 3, powered by `yt-dlp` + `ffmpeg`,
+and shipped as a Docker image.
 
+[![Website](https://img.shields.io/badge/Web-music.boredatom.dev-2de2e6?logo=firefox&logoColor=white)](https://music.boredatom.dev/)
 [![Telegram](https://img.shields.io/badge/Telegram-%40atomsdungeon__bot-26A5E4?logo=telegram&logoColor=white)](https://t.me/atomsdungeon_bot)
 [![Python](https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![aiogram](https://img.shields.io/badge/aiogram-3-2CA5E0)](https://github.com/aiogram/aiogram)
@@ -12,11 +14,20 @@ TikTok clips as video. Built with [aiogram](https://github.com/aiogram/aiogram)
 
 ## ▶️ Try it
 
-The bot runs live at **[@atomsdungeon_bot](https://t.me/atomsdungeon_bot)** —
-open the chat, send a track name, and pick a result.
+- **Web:** **[music.boredatom.dev](https://music.boredatom.dev/)** — search or
+  paste a link, then click download. No account, no install.
+- **Telegram:** **[@atomsdungeon_bot](https://t.me/atomsdungeon_bot)** — open the
+  chat, send a track name, and pick a result.
 
 ## ✨ Features
 
+- **Web download page** — a neon/cyberpunk site
+  ([music.boredatom.dev](https://music.boredatom.dev/)) that mirrors the bot's
+  *audio* features: search YouTube Music / SoundCloud or paste a Spotify, Apple
+  Music, YouTube or SoundCloud link (tracks, playlists & albums), then download
+  the tagged MP3 right in the browser. Powered by the same engine; no account, no
+  install. Served on its own port (`WEB_PORT`, default `8080`), needs no Telegram
+  token or database to run.
 - **Single-source search with a toggle** — defaults to YouTube Music 🎵; the ⇄
   button switches the search to SoundCloud ☁️. Music only, no random videos.
 - **Inline mode** — type `@atomsdungeon_bot query` in any chat to search and
@@ -99,10 +110,11 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Then open the status page at **http://localhost:8473** and message your bot on
-Telegram. To update later: `docker compose pull && docker compose up -d`. To
-stop: `docker compose down`. CI rebuilds and pushes the image (multi-arch:
-`linux/amd64,linux/arm64`) on every push to `main`.
+Then open the web download page at **http://localhost:8080**, the status page at
+**http://localhost:8473**, and/or message your bot on Telegram. To update later:
+`docker compose pull && docker compose up -d`. To stop: `docker compose down`. CI
+rebuilds and pushes the image (multi-arch: `linux/amd64,linux/arm64`) on every
+push to `main`.
 
 ### Build from source (for development)
 
@@ -143,6 +155,8 @@ CasaOS and friends). Only `TELEGRAM_BOT_TOKEN` is required (get one from
 | `INLINE_RESULTS` | `20` | Results fetched for an inline query. |
 | `RATE_PER_MINUTE` | `10` | Max downloads a single user may trigger per minute. |
 | `COOKIES_FILE` | — | Path to a single `cookies.txt` inside the container, used for every yt-dlp site (YouTube, SoundCloud, TikTok); see [Cookies](#-cookies-age-restricted--region-locked-content). |
+| `WEB_PORT` | `8080` | Port for the public web download page; `0` disables it. |
+| `WEB_HOST` | `0.0.0.0` | Bind address for the web download page inside the container. |
 | `METRICS_PORT` | `8473` | Port for the built-in status page; `0` disables the HTTP server. |
 | `METRICS_HOST` | `0.0.0.0` | Bind address for the status page inside the container. |
 
@@ -211,11 +225,20 @@ SoundCloud, TikTok, …), so you can export from several sites into the same fil
 - **Delivered `file_id`s** are stored in PostgreSQL, so the same track re-sends
   instantly later (and inline mode serves it as playable audio) without a
   re-download.
+- **One classifier, three front-ends.** Deciding *what* a pasted/typed input is
+  (TikTok, YouTube/SoundCloud track or playlist, Spotify/Apple track or
+  playlist/album, or a plain search) lives in a single pure function
+  (`music/resolver.py`) shared by the chat handler, inline mode, and the web app
+  — so all three behave identically.
+- **The web app** reuses the same `MusicService` and limiters: `/api/search`
+  classifies and returns tracks, `/api/download` downloads the tagged MP3 and
+  streams it straight to the browser (no Telegram `file_id` round-trip).
 
 ## 🏗️ Architecture
 
 The package is grouped by concern: `music/` (engine), `bot/` (Telegram
-presentation), `infra/` (cross-cutting plumbing), `web/` (status dashboard).
+presentation), `infra/` (cross-cutting plumbing), `web/` (web download page +
+status dashboard).
 
 ```
 bot.py                          — thin entry point
@@ -226,6 +249,7 @@ app/
   models.py                     — shared domain models (Track, Meta, AudioFile, VideoFile)
   music/
     service.py                  — MusicService: search + download routing
+    resolver.py                 — shared input classifier (bot + inline + web)
     links.py                    — Spotify / Apple Music link, playlist & album scraping
     video.py                    — TikTok link detect + video (MP4) download
     metadata.py                 — filename cleanup, ID3 tags, cover + thumbnail
@@ -249,12 +273,26 @@ app/
     health.py                   — heartbeat for the healthcheck
     metrics.py                  — in-memory counters, unique users, recent-log buffer
   web/
-    server.py                   — status page server (aiohttp); / + /api/stats + /healthz
+    server.py                   — two aiohttp servers: download page + status dashboard
+    api.py                      — web download page API: /api/search + /api/download
+    templates/landing.html      — web download page markup (neon/cyberpunk)
     templates/status.html       — status page markup
+tests/                          — pytest suite (resolver, web helpers, /api/search)
 ```
 
 **Adding a source:** implement `AudioSource` (or subclass `YtDlpSource`) in
 `app/music/sources/` and register it in `build_service()` (`app/application.py`).
+
+### Tests
+
+A small, offline pytest suite lives in `tests/` (no network, no downloads). It
+runs in Docker; dev-only deps are in `requirements-dev.txt` (not baked into the
+image):
+
+```sh
+docker run --rm -v "$PWD:/app" ghcr.io/frostatom/playlist9_bot:latest \
+  sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest"
+```
 
 ## 🛠️ Tech stack & dependencies
 
