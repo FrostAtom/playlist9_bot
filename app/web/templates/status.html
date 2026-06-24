@@ -39,65 +39,50 @@
   a { color: inherit; }
   ::selection { background: rgba(110,139,255,.35); }
 
-  /* ───────── shell: sidebar + content ───────── */
-  .shell { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+  /* ───────── centered page ───────── */
+  .page { max-width: 1120px; margin: 0 auto; padding: 26px 24px 60px; }
 
-  aside {
-    position: sticky; top: 0; height: 100vh;
-    padding: 22px 18px;
-    border-right: 1px solid var(--line-soft);
-    background: linear-gradient(180deg, rgba(19,24,38,.7), rgba(10,12,18,.4));
-    backdrop-filter: blur(8px);
-    display: flex; flex-direction: column; gap: 26px;
-  }
-  .brand { display: flex; align-items: center; gap: 12px; }
+  /* top app bar */
+  .appbar { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap; padding-bottom: 20px; border-bottom: 1px solid var(--line-soft); }
+  .brand { display: flex; align-items: center; gap: 13px; }
   .logo {
-    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    width: 40px; height: 40px; border-radius: 12px; flex: none;
     display: grid; place-items: center;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    box-shadow: 0 8px 22px -8px rgba(110,139,255,.8);
+    box-shadow: 0 10px 24px -8px rgba(110,139,255,.85);
   }
-  .logo svg { width: 21px; height: 21px; }
-  .brand .name { font-weight: 700; font-size: 15px; letter-spacing: .2px; }
-  .brand .role { color: var(--muted); font-size: 11.5px; }
+  .logo svg { width: 22px; height: 22px; }
+  .brand .name { font-weight: 750; font-size: 16px; letter-spacing: .2px; }
+  .brand .role { color: var(--muted); font-size: 12px; margin-top: 1px; }
 
-  nav { display: flex; flex-direction: column; gap: 3px; }
-  nav .nlabel { color: var(--faint); font-size: 10.5px; text-transform: uppercase;
-    letter-spacing: .12em; margin: 0 0 8px 8px; font-weight: 700; }
-  nav a {
-    display: flex; align-items: center; gap: 11px;
-    padding: 9px 11px; border-radius: 9px; text-decoration: none;
-    color: var(--muted); font-weight: 550; font-size: 13.5px;
-    transition: background .15s, color .15s;
-  }
-  nav a:hover { background: var(--panel-2); color: var(--txt); }
-  nav a.active { background: linear-gradient(90deg, rgba(110,139,255,.18), rgba(110,139,255,.04));
-    color: var(--txt); box-shadow: inset 2px 0 0 var(--accent); }
-  nav a svg { width: 16px; height: 16px; opacity: .85; flex: none; }
+  .meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px;
+    border: 1px solid var(--line-soft); background: var(--panel); color: var(--muted);
+    font-size: 12.5px; font-variant-numeric: tabular-nums; text-decoration: none;
+    transition: border-color .15s, color .15s; }
+  .chip b { color: var(--txt); font-weight: 650; }
+  a.chip:hover { color: var(--txt); border-color: var(--line); }
 
-  .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
-  .pulse {
-    display: flex; align-items: center; gap: 9px; padding: 10px 12px;
-    border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel);
-    font-size: 12.5px; color: var(--muted);
-  }
   .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; background: var(--green); flex: none; }
   .dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%;
     background: var(--green); opacity: .5; animation: ping 1.8s ease-out infinite; }
   .dot.bad { background: var(--red); } .dot.bad::after { background: var(--red); }
   .dot.warn { background: var(--amber); } .dot.warn::after { background: var(--amber); }
   @keyframes ping { 0% { transform: scale(1); opacity: .5; } 80%,100% { transform: scale(2.6); opacity: 0; } }
-  .side-foot .build { color: var(--faint); font-size: 11px; padding: 0 4px; }
-  .side-foot .build b { color: var(--muted); font-weight: 600; }
 
-  /* ───────── content ───────── */
-  main { padding: 26px 30px 48px; max-width: 1180px; }
-  .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 6px; flex-wrap: wrap; }
-  .topbar h1 { margin: 0; font-size: 22px; font-weight: 750; letter-spacing: -.2px; }
-  .topbar .crumb { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
-  .topbar .clock { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums;
-    display: flex; align-items: center; gap: 8px; }
-  .topbar .clock .dot { width: 7px; height: 7px; }
+  /* centered pill tabs */
+  .tabs { display: flex; justify-content: center; flex-wrap: wrap; gap: 5px; margin: 24px auto 6px;
+    padding: 5px; border: 1px solid var(--line-soft); border-radius: 14px;
+    background: var(--panel); width: fit-content; max-width: 100%; }
+  .tabs a { display: inline-flex; align-items: center; gap: 8px; padding: 8px 17px; border-radius: 10px;
+    text-decoration: none; color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap;
+    transition: background .15s, color .15s, box-shadow .15s; }
+  .tabs a:hover { color: var(--txt); background: var(--panel-2); }
+  .tabs a.active { color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 8px 18px -9px var(--accent); }
+  .tabs a svg { width: 15px; height: 15px; opacity: .9; flex: none; }
 
   .banner { display: none; margin: 14px 0 0; padding: 13px 16px; border-radius: 12px;
     background: linear-gradient(90deg, rgba(245,181,74,.14), rgba(245,181,74,.05));
@@ -197,21 +182,21 @@
   .skeleton { color: var(--faint); }
 
   @media (max-width: 980px) {
-    .shell { grid-template-columns: 1fr; }
-    aside { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
-    aside nav { flex-direction: row; flex-wrap: wrap; }
-    nav .nlabel { display: none; }
-    .side-foot { margin: 0; flex-direction: row; }
     .kpis { grid-template-columns: 1fr 1fr; }
     .cols-2, .cols-3 { grid-template-columns: 1fr; }
   }
-  @media (max-width: 560px) { .kpis { grid-template-columns: 1fr; } main { padding: 20px 16px 40px; } }
+  @media (max-width: 520px) {
+    .kpis { grid-template-columns: 1fr; }
+    .page { padding: 18px 14px 44px; }
+    .tabs { width: 100%; }
+    .tabs a { flex: 1; justify-content: center; padding: 8px 10px; }
+  }
 </style>
 </head>
 <body>
-<div class="shell">
-  <!-- ───────── sidebar ───────── -->
-  <aside>
+<div class="page">
+  <!-- ───────── top app bar ───────── -->
+  <header class="appbar">
     <div class="brand">
       <div class="logo">
         <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -220,44 +205,34 @@
       </div>
       <div>
         <div class="name">playlist9_bot</div>
-        <div class="role">music delivery · ops</div>
+        <div class="role">music delivery · live telemetry</div>
       </div>
     </div>
-
-    <nav>
-      <div class="nlabel">Dashboard</div>
-      <a href="#overview" class="active" data-nav>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-        Overview</a>
-      <a href="#activity" data-nav>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
-        Activity</a>
-      <a href="#delivery" data-nav>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-        Delivery</a>
-      <a href="#logs" data-nav>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M9 13h6M9 17h4"/></svg>
-        Logs</a>
-    </nav>
-
-    <div class="side-foot">
-      <div class="pulse"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
-      <div class="build">yt-dlp <b id="ytv">—</b> <span id="ytage"></span></div>
-      <div class="build"><a href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none">github ↗</a></div>
+    <div class="meta">
+      <span class="chip"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
+      <span class="chip"><span id="clock">—</span></span>
+      <span class="chip">yt-dlp&nbsp;<b id="ytv">—</b><span id="ytage"></span></span>
+      <a class="chip" href="https://github.com/FrostAtom/playlist9_bot" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
-  </aside>
+  </header>
 
-  <!-- ───────── content ───────── -->
-  <main>
-    <div class="topbar">
-      <div>
-        <h1>Live Overview</h1>
-        <div class="crumb">Real-time telemetry · in-memory since last restart</div>
-      </div>
-      <div class="clock"><span class="dot" id="dot2"></span><span id="clock">—</span></div>
-    </div>
+  <!-- ───────── centered tab nav ───────── -->
+  <nav class="tabs">
+    <a href="#overview" class="active" data-nav>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Overview</a>
+    <a href="#activity" data-nav>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+      Activity</a>
+    <a href="#delivery" data-nav>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      Delivery</a>
+    <a href="#logs" data-nav>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M9 13h6M9 17h4"/></svg>
+      Logs</a>
+  </nav>
 
-    <div class="banner" id="banner"></div>
+  <div class="banner" id="banner"></div>
 
     <!-- KPI hero -->
     <section id="overview">
@@ -329,7 +304,6 @@
       <div class="shead"><h2>Recent errors &amp; warnings</h2><span class="hint" id="logHint">—</span></div>
       <div class="panel"><div class="logs" id="logList"></div></div>
     </section>
-  </main>
 </div>
 
 <script>
@@ -523,11 +497,9 @@ window.addEventListener("scroll", spy, { passive: true });
 
 function setLive(ok, warn) {
   const cls = ok ? (warn ? "warn" : "") : "bad";
-  for (const id of ["dot","dot2"]) {
-    const el = $(id); el.className = "dot" + (cls ? " " + cls : "");
-  }
+  $("dot").className = "dot" + (cls ? " " + cls : "");
   $("status").textContent = ok ? (warn ? "live · degraded" : "live") : "unreachable";
-  $("clock").textContent = ok ? "updated " + new Date().toLocaleTimeString() : "retrying…";
+  $("clock").textContent = ok ? new Date().toLocaleTimeString() : "retrying…";
 }
 
 async function tick() {
