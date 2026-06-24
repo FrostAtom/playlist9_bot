@@ -23,14 +23,12 @@ logger = logging.getLogger(__name__)
 # best streams into MP4 if a site serves them split.
 _VIDEO_FORMAT = "best[ext=mp4]/bestvideo*+bestaudio/best"
 
-# TikTok link forms: the full web host, the mobile/share shorteners (vm./vt.),
-# and the m.tiktok.com host. We only need to recognize the link to download it.
+# TikTok link forms: the full web host (www./m.) and the mobile/share
+# shorteners (vm./vt.). One pattern covers every subdomain so the *whole* URL is
+# captured — splitting it across patterns let the host-less branch match first
+# and silently drop the `vt.`/`vm.` prefix the shortener redirect depends on.
 _TIKTOK_PATTERNS: List[Pattern[str]] = [
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"(https?://)?(www\.|m\.)?tiktok\.com/\S+",
-        r"(https?://)?(vm|vt)\.tiktok\.com/\S+",
-    )
+    re.compile(r"(https?://)?(?:www\.|m\.|vm\.|vt\.)?tiktok\.com/\S+", re.IGNORECASE),
 ]
 
 # Non-video files yt-dlp may drop next to the clip (thumbnail, subtitles, etc.).
@@ -38,11 +36,14 @@ _NON_VIDEO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".json", ".vtt", ".srt", ".p
 
 
 def detect_tiktok(text: str) -> Optional[str]:
-    """Return the TikTok URL found in ``text`` (canonical link), or None."""
+    """Return the TikTok URL found in ``text`` (with a scheme), or None."""
     for pattern in _TIKTOK_PATTERNS:
         match = pattern.search(text)
         if match:
-            return match.group(0)
+            url = match.group(0)
+            # yt-dlp needs an absolute URL; the `vt.`/`vm.` share links are pure
+            # redirects, so a scheme-less paste must still get one.
+            return url if url.lower().startswith("http") else f"https://{url}"
     return None
 
 
