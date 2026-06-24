@@ -59,12 +59,24 @@ open the chat, send a track name, and pick a result.
   search-results message auto-deletes after a few minutes; only the delivered
   tracks stay.
 - **Healthcheck** (event-loop heartbeat) and **graceful shutdown** on SIGTERM.
-- **Status page** — a built-in web page at `http://localhost:8473` shows live
-  metrics (uptime, unique users in the last 24 h, searches, downloads, …), the
-  most recent error/warning logs, and the installed `yt-dlp` build — with a
-  banner nudging you to update it once it's older than 30 days (stale builds are
-  the usual cause of YouTube breakage). Served on port `8473` with no auth — keep
-  it on a trusted network or behind a reverse proxy.
+- **Status dashboard** — a built-in web page at `http://localhost:8473` shows
+  live metrics (uptime, unique users in the last 24 h, searches, downloads,
+  success rate, …), recent error/warning logs, and `yt-dlp` build health. Served
+  on port `8473` with no auth — keep it on a trusted network or behind a reverse
+  proxy. [See it below](#-status-dashboard).
+
+## 📊 Status dashboard
+
+A self-contained dashboard (no build step, no external assets) served at
+**`http://localhost:8473`** is your window into a running instance without
+shelling into the container. It polls every few seconds and shows uptime, unique
+users (24 h) and total requests with live sparklines, a delivery-success gauge,
+a request-mix breakdown, per-source activity, download outcomes, and the most
+recent error/warning logs — plus a banner that nudges you to bump `yt-dlp` once
+the build is older than 30 days (stale builds are the usual cause of YouTube
+breakage).
+
+![playlist9_bot status dashboard](docs/dashboard.png)
 
 ## 🚀 Quick start
 
