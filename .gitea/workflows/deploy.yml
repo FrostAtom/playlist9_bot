@@ -11,9 +11,9 @@ on:
 
 jobs:
   deploy:
-    # A self-hosted Gitea Actions runner on the deploy host, with the Docker CLI
-    # and access to the Docker daemon. Replace the label with your runner's.
-    runs-on: self-hosted
+    # A Gitea Actions runner on the deploy host, with the Docker CLI and access
+    # to the Docker daemon.
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
