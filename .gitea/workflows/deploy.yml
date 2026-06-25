@@ -1,0 +1,32 @@
+name: Deploy
+
+# Build the image from source on the deploy host and restart the stack,
+# using the repo's own docker-compose.yml. Fully independent of GitHub/GHCR —
+# Gitea builds and runs everything itself, injecting secrets via the env below
+# (compose reads them through ${...} interpolation).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # A self-hosted Gitea Actions runner on the deploy host, with the Docker CLI
+    # and access to the Docker daemon. Replace the label with your runner's.
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build & (re)start stack
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          STORAGE_CHAT_ID: ${{ secrets.STORAGE_CHAT_ID }}
+          # Optional — have sensible defaults in docker-compose.yml if unset.
+          COOKIES_FILE: ${{ secrets.COOKIES_FILE }}     # e.g. /cookies/cookies.txt
+          COOKIES_DIR: ${{ secrets.COOKIES_DIR }}       # host dir, e.g. /srv/playlist9/cookies
+          MUSIC_PAGE_PORT: ${{ secrets.MUSIC_PAGE_PORT }}  # e.g. 9001
+        run: docker compose up -d --build
+
+      - name: Prune dangling images
+        run: docker image prune -f

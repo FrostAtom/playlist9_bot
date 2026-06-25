@@ -1,22 +1,28 @@
 services:
   bot:
+    # Build locally from source (Gitea CI / from a clone), or pull the published
+    # image if present. `${VAR}` values are filled from the environment — set as
+    # literals here, via a host .env, or injected by Gitea Actions secrets.
+    build: .
     image: ghcr.io/frostatom/playlist9_bot:latest
     container_name: playlist9_bot
     restart: unless-stopped
     environment:
-      TELEGRAM_BOT_TOKEN: ""
-      STORAGE_CHAT_ID: ""
-      COOKIES_FILE: ""
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      STORAGE_CHAT_ID: "${STORAGE_CHAT_ID}"
+      COOKIES_FILE: "${COOKIES_FILE}"
       DATABASE_HOST: "db"
       DATABASE_PORT: "5432"
       DATABASE_USER: "playlist9"
       DATABASE_PASSWORD: "playlist9"
       DATABASE_NAME: "playlist9"
     volumes:
-      - ./cookies:/cookies
+      # Absolute host path under CI (the checkout workspace is ephemeral); a
+      # relative ./cookies works for local/CasaOS runs.
+      - "${COOKIES_DIR:-./cookies}:/cookies"
     ports:
-      - "8080:8080"   # music download page
-      - "8473:8473"   # status dashboard
+      - "${MUSIC_PAGE_PORT:-8080}:8080"   # music download page
+      - "8473:8473"                       # status dashboard
     depends_on:
       db:
         condition: service_healthy
