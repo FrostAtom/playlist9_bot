@@ -8,6 +8,9 @@ on:
 
 jobs:
   build-and-push:
+    # Gitea also reads .github/workflows, so guard this to GitHub only — it
+    # pushes to GHCR with GitHub's token and must not run on the Gitea mirror.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
