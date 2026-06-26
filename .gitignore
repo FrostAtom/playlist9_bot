@@ -9,3 +9,5 @@ __pycache__/
 # yt-dlp cookies (treat like a password) — keep the folder, ignore its contents
 cookies/*
 !cookies/.gitkeep
+# Playwright MCP scratch output
+.playwright-mcp/

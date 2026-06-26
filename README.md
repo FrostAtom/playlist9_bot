@@ -19,6 +19,12 @@ and shipped as a Docker image.
 - **Telegram:** **[@atomsdungeon_bot](https://t.me/atomsdungeon_bot)** — open the
   chat, send a track name, and pick a result.
 
+[![playlist9 web download page](docs/website.png)](https://music.boredatom.dev/)
+
+> The web download page — search YouTube Music / SoundCloud or paste a link, then
+> click to grab a tagged MP3. It's a mobile-friendly, installable PWA (add it to
+> your home screen) and runs standalone with no Telegram token or database.
+
 ## ✨ Features
 
 - **Web download page** — a neon/cyberpunk site
@@ -26,8 +32,10 @@ and shipped as a Docker image.
   *audio* features: search YouTube Music / SoundCloud or paste a Spotify, Apple
   Music, YouTube or SoundCloud link (tracks, playlists & albums), then download
   the tagged MP3 right in the browser. Powered by the same engine; no account, no
-  install. Served on its own port (`WEB_PORT`, default `8080`), needs no Telegram
-  token or database to run.
+  install. **Mobile-friendly and installable as a PWA** (web manifest + service
+  worker + icons — add it to your phone's home screen and it opens full-screen).
+  Served on its own port (`WEB_PORT`, default `8080`), needs no Telegram token or
+  database to run.
 - **Single-source search with a toggle** — defaults to YouTube Music 🎵; the ⇄
   button switches the search to SoundCloud ☁️. Music only, no random videos.
 - **Inline mode** — type `@atomsdungeon_bot query` in any chat to search and
