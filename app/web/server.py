@@ -33,8 +33,13 @@ _YTDLP_STALE_DAYS = 30
 
 # The page markup lives next to this module as plain files (no templating
 # engine) — their only dynamic parts are the JSON values spliced in below.
-_TEMPLATE = Path(__file__).parent / "templates" / "status.html"
-_LANDING = Path(__file__).parent / "templates" / "landing.html"
+_TEMPLATES = Path(__file__).parent / "templates"
+_TEMPLATE = _TEMPLATES / "status.html"
+_LANDING = _TEMPLATES / "landing.html"
+# PWA assets for the download page (manifest + service worker + icons).
+_MANIFEST = _TEMPLATES / "manifest.webmanifest"
+_SW = _TEMPLATES / "sw.js"
+_ICONS = _TEMPLATES / "icons"
 
 # Friendly labels + display order for the counters incremented around the app.
 # Counters not listed here still show up (raw key) so new metrics aren't lost.
@@ -173,9 +178,26 @@ async def start_download_server(
     async def _index(_request: web.Request) -> web.Response:
         return web.Response(text=_render_landing(service), content_type="text/html")
 
+    async def _manifest(_request: web.Request) -> web.Response:
+        return web.Response(
+            text=_MANIFEST.read_text(encoding="utf-8"),
+            content_type="application/manifest+json",
+        )
+
+    async def _service_worker(_request: web.Request) -> web.Response:
+        # Served from the root so its scope covers the whole origin.
+        return web.Response(
+            text=_SW.read_text(encoding="utf-8"),
+            content_type="text/javascript",
+            headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+        )
+
     app.add_routes(
         [
             web.get("/", _index),
+            web.get("/manifest.webmanifest", _manifest),
+            web.get("/sw.js", _service_worker),
+            web.static("/icons", _ICONS),
             web.get("/api/search", api.search),
             web.post("/api/download", api.download),
             web.get("/healthz", _healthz),

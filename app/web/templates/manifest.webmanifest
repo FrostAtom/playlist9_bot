@@ -1,0 +1,17 @@
+{
+  "name": "playlist9 · music downloader",
+  "short_name": "playlist9",
+  "description": "Search YouTube Music & SoundCloud or paste a Spotify / Apple Music link — get a clean, tagged 320 kbps mp3.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0712",
+  "theme_color": "#0A0712",
+  "categories": ["music", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0712">
 <title>playlist9 · music downloader</title>
+<meta name="description" content="Search YouTube Music &amp; SoundCloud or paste a Spotify / Apple Music link — get a clean, tagged 320 kbps mp3.">
+<!-- PWA / installable -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="playlist9">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -42,8 +52,11 @@
     background-attachment: fixed;
     background-color: var(--bg);
     -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
     overflow-x: hidden;
   }
+  /* iOS Safari janks/flickers on fixed background-attachment while scrolling */
+  @media (hover: none) { body { background-attachment: scroll; } }
   /* faint terminal grid behind everything */
   body::before {
     content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
@@ -56,7 +69,9 @@
   a { color: inherit; }
   ::selection { background: rgba(185,138,255,.32); }
 
-  .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 40px 22px 72px; }
+  .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto;
+    padding: calc(40px + env(safe-area-inset-top)) calc(22px + env(safe-area-inset-right))
+             calc(72px + env(safe-area-inset-bottom)) calc(22px + env(safe-area-inset-left)); }
 
   /* ───────── nav ───────── */
   .nav { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -91,7 +106,8 @@
   /* ───────── search ───────── */
   .tabs { display: flex; gap: 18px; margin-bottom: 16px; }
   .tabs button { appearance: none; border: 0; background: none; cursor: pointer; font: inherit;
-    font-size: 13px; font-weight: 500; color: var(--faint); padding: 2px 0 4px; position: relative;
+    font-size: 13px; font-weight: 500; color: var(--faint); padding: 8px 0 10px; position: relative;
+    min-height: 40px; -webkit-tap-highlight-color: transparent;
     text-transform: lowercase; transition: color .15s; }
   .tabs button::before { content: "[ "; }
   .tabs button::after  { content: " ]"; }
@@ -105,7 +121,7 @@
     box-shadow: 0 0 0 1px rgba(185,138,255,.25), 0 0 30px -6px var(--glow); }
   .field .prompt { color: var(--lilac); font-weight: 700; font-size: 16px; flex: none; }
   .field input { flex: 1; border: 0; outline: 0; background: none; color: var(--txt);
-    font: inherit; font-size: 15px; padding: 18px 2px; min-width: 0; caret-color: var(--lilac); }
+    font: inherit; font-size: 16px; padding: 18px 2px; min-width: 0; caret-color: var(--lilac); }
   .field input::placeholder { color: var(--faint); }
   .go { appearance: none; border: 0; cursor: pointer; flex: none; font: inherit; font-weight: 700;
     font-size: 14px; color: var(--bg); background: var(--lilac); border-radius: 5px;
@@ -150,7 +166,8 @@
   .info .a .badge { color: var(--lilac); }
   .dur { color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; flex: none; }
   .dl { appearance: none; border: 0; background: none; cursor: pointer; flex: none; font: inherit;
-    font-size: 13px; font-weight: 700; letter-spacing: .5px; color: var(--lilac); padding: 6px 2px;
+    font-size: 13px; font-weight: 700; letter-spacing: .5px; color: var(--lilac);
+    min-width: 44px; min-height: 44px; padding: 6px 8px; -webkit-tap-highlight-color: transparent;
     transition: filter .15s, color .15s; }
   .dl::before { content: "[ "; color: var(--faint); }
   .dl::after  { content: " ]"; color: var(--faint); }
@@ -189,6 +206,11 @@
     .links { gap: 14px; }
     .go { padding: 11px 14px; }
   }
+  @media (max-width: 420px) {
+    .row { gap: 10px; padding: 10px 12px; }
+    .idx { display: none; }
+    .dur { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -216,7 +238,8 @@
     <div class="tabs" id="tabs"></div>
     <form class="field" id="form" autocomplete="off">
       <span class="prompt">&gt;</span>
-      <input id="q" name="q" placeholder="song, artist, or a link" autofocus>
+      <input id="q" name="q" type="search" placeholder="song, artist, or a link"
+        enterkeyhint="search" inputmode="search" autocapitalize="off" autocorrect="off" spellcheck="false">
       <button class="go" id="go" type="submit">[ search ]</button>
     </form>
     <p class="hint">// try "daft punk — instant crush" &nbsp;or paste a&nbsp; spotify / playlist &nbsp;link</p>
@@ -419,6 +442,15 @@ function filenameFrom(disposition) {
 $("form").addEventListener("submit", e => { e.preventDefault(); doSearch(); });
 $("year").textContent = new Date().getFullYear();
 renderTabs();
+
+// Autofocus only on devices with a real pointer — avoids the mobile keyboard
+// popping up (and the page jumping) the instant the page loads.
+if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) $("q").focus();
+
+// Register the service worker (enables "Add to Home Screen" / installability).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 </script>
 </body>
 </html>
